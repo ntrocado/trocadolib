@@ -350,45 +350,39 @@
        :do (progn
 	     (setf (getf body :pos) new-pos)
 	     (setf (getf body :vel) new-vel))
-       :finally (return (collision-control body-list)))))
+       :finally (return body-list))))
 
-(defun collision-control (body-list)
-  (loop :for (a b) :on body-list :while b
-     :do
-     ;; É preciso melhorar a detecção de colisões para escalas maiores
-     (when (eql (round (/ (getf a :pos) 3)) (round (/ (getf b :pos) 3)))
-       (progn
-	 (setf (getf a :pos) -1)
-	 (setf (getf b :vel) (/
-			      (+
-			       (* (getf a :mass) (getf a :vel))
-			       (* (getf b :mass) (getf b :vel)))
-			      (+ (getf a :mass) (getf b :mass))))))
-     :finally (return (remove-if (lambda (x) (eql (getf x :pos) -1)) body-list))))
-       
 (defun get-offsets (body-list)
   (loop :for body :in body-list
      :collect (getf body :pos)))
 
-(defun rhythm-gravity (positions masses time &optional (step 20))
-  (loop :for i :upto time
-     :for bl = (create-body-list positions masses) :then (update bl step)
-     :finally (return (get-offsets bl))))
+(defun rhythm-gravity (positions masses time &optional (step 20)
+  (let ((bl (create-body-list positions masses)))
+    (loop :for i :upto time
+       :while (unique-p ; Collision control
+	       (mapcar #'(lambda (x) (round (/ x 3)))
+		       (get-offsets bl)))
+       :do (update bl step)
+       :finally (return (get-offsets bl))))))
   
 (defun rg (positions masses time &optional (step 20))
-  (loop :for i :upto time
-     :for bl = (create-body-list positions masses) :then (update bl step)
-     :while (> (list-length bl) 1)
-     :do (let ((line (make-string 100 :initial-element #\_)))
-	   (loop :for b :in bl
-	      :for position = (round (getf b :pos))
-	      :for c = (cond
-			 ((< (getf b :mass) 300000) ".")
-			 ((and (>= (getf b :mass) 300000)
-			       (< (getf b :mass) 600000)) "o")
-			 ((>= (getf b :mass)) 600000 "O"))
-	      :do (replace line c :start1 position :end1 (+ 1 position))
-	      :finally (format t "~a ~a~%" line i)))))))
+  (let ((bl (create-body-list positions masses)))
+    (loop :for i :upto time
+       :while (unique-p ; Collision control
+	       (mapcar #'(lambda (x) (round (/ x 3)))
+		       (get-offsets bl)))
+       :do (progn
+	     (update bl step)
+	     (let ((line (make-string 100 :initial-element #\_)))
+	       (loop :for b :in bl
+		  :for position = (round (getf b :pos))
+		  :for c = (cond
+			     ((< (getf b :mass) 300000) ".")
+			     ((and (>= (getf b :mass) 300000)
+				   (< (getf b :mass) 600000)) "o")
+			     ((>= (getf b :mass)) 600000 "O"))
+		  :do (replace line c :start1 position :end1 (+ 1 position))
+		  :finally (format t "~a ~a~%" line i)))))))
 
   
 

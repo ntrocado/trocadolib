@@ -26,12 +26,6 @@
         ((= (first a) (first b)) nil)
         (t (< (first a) (first b))) ))
 
-(defun scale-value (value orig-min orig-max dest-min dest-max)
-   (+ (/ (* (- value orig-min)
-            (- dest-max dest-min))
-         orig-max)
-      dest-min))
-
 ;;; -----------------
 ;;; MUSICAL UTILITIES
 ;;; -----------------
@@ -47,18 +41,6 @@
 (defun midi-to-freq (note)
   ;; Converts a note in midi cents to frequency in Hz.
   (* 440 (expt 2 (/ (- (/ note 100) 69) 12))))
-
-(defun durations-to-offsets (duration-list)
-  ;; Given a list of durations, returns a list of the corresponding offsets in ms.
-  (loop :for d :in duration-list
-     :sum d into total
-     :collect total into results
-     :finally (return (butlast (push 0 results)))))
-
-(defun offsets-to-durations (offset-list)
-  ;; Given a list of offsets, returns a list of the corresponding durations in ms.
-  (loop :for (o1 o2) :on offset-list :while o2
-     :collect (- o2 o1)))
 
 (defun harmonic-series (fundamental n-partials)
   ;; Returns <n-partials> of the harmonic series starting on <fundamental> note in midi cents.
@@ -191,7 +173,7 @@
 	  (range chord-or-sequence bottom))))
 
 ;;; --------
-;;; ANALYSIS
+;;; ANALISYS
 ;;; --------
 
 (defun unique-p (l)
@@ -309,7 +291,7 @@
 ;;; --------------
 
 (defun gravity-force (m1 m2 r)
-  (let ((g (* 6.67398 0.00000000001)))
+  (let ((g 1));(* 6.67398 0.00000000001)))
     (/ (* g m1 m2) (expt r 2))))
 
 (defun center-of-mass (body-list)
@@ -318,6 +300,50 @@
      :for b :in body-list
      :sum (* (getf b :mass) (getf b :pos)) :into s
      :finally (return (* (/ 1 total-mass) s))))
+
+(defun acceleration (F m)
+  (/ F m))
+
+(defun displacement (v a time)
+  (+ (* v time) (* 1/2 a (expt time 2))))
+
+(defun gravity (body-list time)
+  (loop
+     :with center := (center-of-mass body-list)
+     :with dir := 1
+     :for body :in body-list
+     :collect
+     (loop :for other :in body-list
+	:when (not (eq body other))
+	:sum (gravity-force
+	      (getf body :mass)
+	      (getf other :mass)
+	      (- (getf other :pos) (getf body :pos))) :into f
+	:finally
+	(progn
+	  (if (< (getf body :pos) center) (setf dir 1)
+	      (setf dir -1))
+	  (return (* dir (displacement 0 (acceleration f (getf body :mass)) time)))))))
+
+(defun update-pos (body-list time)
+  (let ((displacement-list (gravity body-list time)))
+    (loop :for body :in body-list
+       :for disp :in displacement-list
+       :do (setf (getf body :pos) (float (+ (getf body :pos) disp)))
+       :finally (return body-list))))
+
+(defun rhythm-gravity (onset-list velocity-list time)
+  (let* ((bl (loop :for o :in onset-list
+	       :for v :in velocity-list
+		:collect (list ':pos o ':mass v)))
+	 (new-bl (update-pos bl time)))
+    (loop
+       :for body :in new-bl
+       :for pos := (getf body :pos)
+       :for mass := (getf body :mass)
+       :for onsets := (list pos) :then (cons pos onsets)
+       :for velocities := (list mass) :then (cons mass velocities)
+       :finally (return (list (reverse onsets) (reverse velocities))))))
 
 (defun create-body-list (positions masses)
   (loop :for p :in positions
@@ -335,11 +361,20 @@
 		 (- (getf other :pos) (getf body :pos)))
 		(if (< (getf body :pos) (getf other :pos)) 1 -1)))))
 	
+(defun update-pos (body dt)
+  (let ((x (getf body :pos))
+	(v (getf body :vel)))
+    (+ x (* v dt))))
+
+(defun update-vel (body body-list dt)
+  (let ((v (getf body :vel))
+	(f (gravity)))))
+
 (defun update (body-list dt)
   (let ((f-list (gravity body-list)))
     (loop :for f :in f-list ;Update gravity-force
        :for body :in body-list
-       :do (setf (getf body :f) f))
+       :do (setf (getf body :f) (float f)))
     (loop :for body :in body-list ;Calculate new positions and velocites
        :for x := (getf body :pos)
        :for v := (getf body :vel)
@@ -348,49 +383,10 @@
        :for m := (getf body :mass)
        :for new-vel := (+ v (* (/ f m) dt))
        :do (progn
-	     (setf (getf body :pos) new-pos)
-	     (setf (getf body :vel) new-vel))
-       :finally (return (collision-control body-list)))))
+	     (setf (getf body :pos) (float new-pos))
+	     (setf (getf body :vel) (float new-vel)))
+       :finally (return body-list))))
 
-(defun collision-control (body-list)
-  (loop :for (a b) :on body-list :while b
-     :do
-     ;; É preciso melhorar a detecção de colisões para escalas maiores
-     (when (eql (round (/ (getf a :pos) 3)) (round (/ (getf b :pos) 3)))
-       (progn
-	 (setf (getf a :pos) -1)
-	 (setf (getf b :vel) (/
-			      (+
-			       (* (getf a :mass) (getf a :vel))
-			       (* (getf b :mass) (getf b :vel)))
-			      (+ (getf a :mass) (getf b :mass))))))
-     :finally (return (remove-if (lambda (x) (eql (getf x :pos) -1)) body-list))))
-       
-(defun get-offsets (body-list)
-  (loop :for body :in body-list
-     :collect (getf body :pos)))
-
-(defun rhythm-gravity (positions masses time &optional (step 20))
-  (loop :for i :upto time
-     :for bl = (create-body-list positions masses) :then (update bl step)
-     :finally (return (get-offsets bl))))
-  
-(defun rg (positions masses time &optional (step 20))
-  (loop :for i :upto time
-     :for bl = (create-body-list positions masses) :then (update bl step)
-     :while (> (list-length bl) 1)
-     :do (let ((line (make-string 100 :initial-element #\_)))
-	   (loop :for b :in bl
-	      :for position = (round (getf b :pos))
-	      :for c = (cond
-			 ((< (getf b :mass) 300000) ".")
-			 ((and (>= (getf b :mass) 300000)
-			       (< (getf b :mass) 600000)) "o")
-			 ((>= (getf b :mass)) 600000 "O"))
-	      :do (replace line c :start1 position :end1 (+ 1 position))
-	      :finally (format t "~a ~a~%" line i)))))))
-
-  
 
 
 
