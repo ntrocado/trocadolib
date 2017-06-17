@@ -32,6 +32,23 @@
          orig-max)
       dest-min))
 
+(defun binary-list (n &optional acc)
+  ;; http://stackoverflow.com/questions/22668217/decimal-to-binary-in-lisp-make-a-non-nested-list
+  (cond ((zerop n) (or acc (list 0)))
+        ((plusp n)
+         (binary-list (ash n -1) (cons (logand 1 n) acc)))
+        (t (error "~S: non-negative argument required, got ~s" 'binary-list n))))
+
+(defun rotate (lst n)
+  ;; https://github.com/bbatsov/cl-99-problems/blob/master/p119.lisp
+  (let ((n-int (if (plusp n) n (- (length lst) (abs n)))))
+    (labels ((rotate* (lst index result)
+               (cond
+                 ((null lst) result)
+                 ((< index n-int) (rotate* (rest lst) (1+ index) (cons (first lst) result)))
+                 (t (append lst result)))))
+      (rotate* lst 0 nil))))
+
 ;;; -----------------
 ;;; MUSICAL UTILITIES
 ;;; -----------------
@@ -335,7 +352,7 @@
 		 (- (getf other :pos) (getf body :pos)))
 		(if (< (getf body :pos) (getf other :pos)) 1 -1)))))
 	
-(defun update (body-list dt)
+(defun update (body-list dt scale)
   (let ((f-list (gravity body-list)))
     (loop :for f :in f-list ;Update gravity-force
        :for body :in body-list
@@ -350,13 +367,14 @@
        :do (progn
 	     (setf (getf body :pos) new-pos)
 	     (setf (getf body :vel) new-vel))
-       :finally (return (collision-control body-list)))))
+       :finally (return (collision-control body-list scale)))))
 
-(defun collision-control (body-list)
-  (loop :for (a b) :on body-list :while b
+(defun collision-control (body-list scale)
+  (loop :with scale-factor = (/ (* scale 3) 100)
+     :for (a b) :on body-list :while b
      :do
-     ;; É preciso melhorar a detecção de colisões para escalas maiores
-     (when (eql (round (/ (getf a :pos) 3)) (round (/ (getf b :pos) 3)))
+     (when (eql (round (/ (getf a :pos) scale-factor))
+		(round (/ (getf b :pos) scale-factor)))
        (progn
 	 (setf (getf a :pos) -1)
 	 (setf (getf b :vel) (/
@@ -364,22 +382,28 @@
 			       (* (getf a :mass) (getf a :vel))
 			       (* (getf b :mass) (getf b :vel)))
 			      (+ (getf a :mass) (getf b :mass))))))
-     :finally (return (remove-if (lambda (x) (eql (getf x :pos) -1)) body-list))))
+     :finally (return (remove-if (lambda (x) (eql (getf x :pos) -1))
+				 body-list))))
        
 (defun get-offsets (body-list)
   (loop :for body :in body-list
      :collect (getf body :pos)))
 
 (defun rhythm-gravity (positions masses time &optional (step 20))
-  (loop :for i :upto time
-     :for bl = (create-body-list positions masses) :then (update bl step)
-     :finally (return (get-offsets bl))))
+  "Calculates a list of offsets after <time>"
+  (let ((scale (- (apply #'max positions) (apply #'min positions))))
+    (loop :for i :upto time
+       :for bl = (create-body-list positions masses) :then (update bl step scale)
+       :finally (return (get-offsets bl)))))
   
 (defun rg (positions masses time &optional (step 20))
-  (loop :for i :upto time
-     :for bl = (create-body-list positions masses) :then (update bl step)
+  "Outputs a visualisation of the gravity function."
+  (loop :with scale = (- (apply #'max positions) (apply #'min positions))
+     :for i :upto time
+     :for bl = (create-body-list positions masses) :then (update bl step scale)
      :while (> (list-length bl) 1)
-     :do (let ((line (make-string 100 :initial-element #\_)))
+     :do (let ((line (make-string (+ 1 (apply #'max positions))
+				  :initial-element #\_)))
 	   (loop :for b :in bl
 	      :for position = (round (getf b :pos))
 	      :for c = (cond
@@ -388,13 +412,132 @@
 			       (< (getf b :mass) 600000)) "o")
 			 ((>= (getf b :mass)) 600000 "O"))
 	      :do (replace line c :start1 position :end1 (+ 1 position))
-	      :finally (format t "~a ~a~%" line i)))))))
+	      :finally (format t "~a ~a~%" line i)))))
 
+(defun make-body-list (magnitudes)
+  (mapcar (lambda (x) (* x 100000)) magnitudes))
+
+(defun time-series (positions masses iterations step)
+  (let ((scale (- (apply #'max positions) (apply #'min positions))))
+    (loop :for i :upto iterations
+       :for bl = (create-body-list positions masses) :then (update bl step scale)
+       :collect (get-offsets bl))))
+
+
+;;; ---------
+;;; NECKLACES
+;;; ---------
+
+(defun all-necklaces (limit &optional (fun nil fun-supplied-p))
+  "Because a necklace can be expressed as a series of zeros (rests) 
+and ones (onsets), converts all numbers from 1 up to <limit> into base-2, 
+and returns the corresponding binary lists. The results can be filtered
+to only include the necklaces for which the function <fun> returns T."
+  (loop :for i :from 1 :upto limit
+     :for b := (binary-list i)
+     :when (or (not fun-supplied-p) (funcall fun b)) ;(rhythmic-oddity-p (binary->interonset b))
+     :collect b))
+
+(defun binary->interonset (l)
+  "Accepts a list <l> of binary digits and returns a list
+of inter-onset intervals. For example (1 1 0 0 0 1) -> (1 4 1)."
+  (when (member 1 l)
+    (let ((normal-l
+	   (loop :for ll := l :then (rotate ll 1)
+	      :while (zerop (first ll))
+	      :finally (return ll))))
+      (loop :for o :in normal-l
+	 :for c := 0 :then (incf c)
+	 :when (and (plusp o) (plusp c)) :collect c :into r :and :do (setf c 0)
+	 :finally (return (append r (list (+ c 1))))))))
+
+;;; ---------------
+;;; RHYTHMIC ODDITY
+;;; ---------------
+
+(defun rhythmic-oddity-p (input &key (binary-list nil))
+  "Checks if <input> has the 'rhythmic oddity' property.
+Accepts a list of inter-onset intervals by default. If <input> is
+a binary list then the function must be called with :binary-list t"
+  (let ((word (if binary-list
+		  (binary->interonset input)
+		  input)))
+    (when (and (listp word) (evenp (reduce #'+ word)))
+      (let ((all-cycles (loop :for u :in word
+			   :for rotated-word := word
+			   :then (append (rest rotated-word)
+					 (list (first rotated-word)))
+			   :collect rotated-word)))
+	(loop :for w :in all-cycles
+	   :unless
+	   (loop :for i :from 1 :upto (- (length w) 1)
+	      :for hu := (reduce #'+ (subseq w 0 i))
+	      :for hv := (reduce #'+ (subseq w i))
+	      :when (= hu hv)
+	      :return (not :it)
+	      :finally (return t))
+	   :return nil
+	   :finally (return t))))))
+
+;;; --------
+;;; EVENNESS
+;;; --------
+
+(defun evenness (ioi)
+  (let* ((n (reduce #'+ ioi))
+	 (k (length ioi))
+	 (h (/ n k))
+	 (m (apply #'max ioi)))
+    (/ 1 (1+ (- m h)))))
+		    
+
+;; (defun hop-and-jump (onsets pulses &optional hop)
+;;   (when (evenp pulses)
+;;     (let* ((necklace (make-array pulses :element-type 'bit))
+;; 	  (available (copy-seq necklace)))
+;;       (print necklace)
+;;       (print available))))
+
+(defun do-it (v &key (min-length 8))
+  (let* ((a (all-necklaces v))
+	 (results (loop :for i :in a
+		     :for s := (binary->interonset i)
+		     :for p := 1 :then (incf p)
+		     :do (when (= (mod p 1000) 0) (format t "-"))
+		     :when (and
+			    (> (length s) min-length)
+			    (< (count 1 s) 3)
+			    (rhythmic-oddity-p s)
+			    (> (evenness s) 1/3))
+		     :collect (mapcar #'(lambda (x) (* 100 x)) s)))
+	   (chords (mapcar #'(lambda (l) (necklace-chord 4800 l)) results)))
+    (loop :for c :in chords
+       :for p := 1 :then (incf p)
+       :do (when (= (mod p 100) 0) (format t "="))
+       :when ;(and
+	      (mod12-unique-p c)
+	     ; (> (length c) min-length))
+       :collect c)))
+
+(defun necklace-chord (root inter-onsets)
+  (loop :for n :in inter-onsets
+     :for r := (+ root n) :then (+ r n)
+     :collect r :into results
+     :finally (return (push root results))))
+
+;(all-necklaces 65536 #'(and (alexandria:rcurry #'rhythmic-oddity-p :binary-list t) t))
+
+;;; -----------------
+;;; TRICHORD ANALISYS
+;;; -----------------
+
+;(defun prime-form (l)
   
 
-
-
-
-
-
+(defun first-trichord (l)
+  (loop :for a :in l
+     :for c := 1 :then (if (not (member a r)) (incf c) c)
+     :collect a :into r
+     :until (= c 3)
+     :finally (return r)))
 
