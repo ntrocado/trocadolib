@@ -49,6 +49,18 @@
                  (t (append lst result)))))
       (rotate* lst 0 nil))))
 
+(defun random-no-repeats (bottom top size no-repeat-size)
+    (when (> size no-repeat-size)
+      (loop :repeat size
+	 :with new-last-x
+	 :for last-x := nil :then new-last-x
+	 :collect (loop :for nn := (+ (random (- top (- bottom 1))) bottom)
+		     :do (setf new-last-x (if (< (length last-x) no-repeat-size)
+					      (cons nn last-x)
+					      (butlast (cons nn last-x))))
+		     :until (unique-p new-last-x)
+		     :finally (return nn)))))
+
 ;;; -----------------
 ;;; MUSICAL UTILITIES
 ;;; -----------------
@@ -542,4 +554,7 @@ a binary list then the function must be called with :binary-list t"
      :collect a :into r
      :until (= c 3)
      :finally (return r)))
+
+
+;;; ---------------
 
