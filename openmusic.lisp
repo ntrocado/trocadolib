@@ -418,9 +418,11 @@
   (mapcar (lambda (x) (* x 100000)) magnitudes))
 
 (defun time-series (positions masses iterations step)
+  "Returns a list of offsets for a number of <iterations>."
   (let ((scale (- (apply #'max positions) (apply #'min positions))))
     (loop :for i :upto iterations
-       :for bl = (create-body-list positions masses) :then (update bl step scale)
+       :for bl = (update (create-body-list positions masses) step scale)
+       :then (update bl step scale)
        :collect (get-offsets bl))))
 
 
