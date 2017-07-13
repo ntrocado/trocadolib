@@ -62,6 +62,16 @@
 		     :finally (return nn)))))
 
 ;;; -----------------
+;;; PWGL or OpenMusic
+;;; -----------------
+
+(defun midi-cents (n)
+  (if (find :om *features*)
+      (* n 100)
+      n))
+
+
+;;; -----------------
 ;;; MUSICAL UTILITIES
 ;;; -----------------
 
@@ -71,11 +81,11 @@
 
 (defun freq-to-midi (freq)
   ;; Converts a pitch with frequency <freq> in Hz to midi cents.
-  (round (* 100 (+ 69 (* 12 (log (/ freq 440) 2))))))
+  (round (* (midi-cents 1) (+ 69 (* 12 (log (/ freq 440) 2))))))
 
 (defun midi-to-freq (note)
   ;; Converts a note in midi cents to frequency in Hz.
-  (* 440 (expt 2 (/ (- (/ note 100) 69) 12))))
+  (* 440 (expt 2 (/ (- (/ note (midi-cents 1)) 69) 12))))
 
 (defun durations-to-offsets (duration-list)
   ;; Given a list of durations, returns a list of the corresponding offsets in ms.
@@ -99,34 +109,34 @@
 ;;; TRANSFORMATIONS
 ;;; ---------------
 
-(defun one-rotation (chord &optional (interval 1200))
+(defun one-rotation (chord &optional (interval (* 1 12)))
   ;; Repeatedly transposes the lowest note of <chord>
   ;; up by an <interval> until it's the highest.
   (let ((lowest (apply #'min chord))
 	(highest (apply #'max chord)))
     (loop :for a := lowest :then (+ a interval)
        :maximizing a :until (> a  highest)
-	 :finally (return (subst a lowest chord)))))
+       :finally (return (subst a lowest chord)))))
 
-(defun chord-rotations (chord &optional (interval 1200))
+(defun chord-rotations (chord &optional (interval (midi-cents 12)))
   ;; Returns a list of all chord rotations
   (let ((sorted-chord (sort (copy-seq chord) #'<)))
     (labels ((upa (a b)
-             (cond ((> a b) a)
-                   (t (upa (+ a interval) b)))))
-    (append (list sorted-chord)
-            (loop :for note :in (butlast sorted-chord)
-	       :for achord := (subst (upa note (apply #'max sorted-chord))
-				     note sorted-chord) 
-	       :then (subst (upa note (apply #'max achord))
-			    note achord) 
-                :collect achord)))))
+	       (cond ((> a b) a)
+		     (t (upa (+ a interval) b)))))
+      (append (list sorted-chord)
+	      (loop :for note :in (butlast sorted-chord)
+		 :for achord := (subst (upa note (apply #'max sorted-chord))
+				       note sorted-chord) 
+		 :then (subst (upa note (apply #'max achord))
+			      note achord) 
+		 :collect achord)))))
 
 (defun many-rotations (chord interval iterations multiplier)
   ;; Rotates the chord; in each rotation the note that goes to the top of the chord
   ;; is transposed by a increasing amout, multiplied by a <multiplier> interval.
   (loop :for i :from 0 :upto iterations
-     :for a := chord :then (one-rotation a (+ interval (* i multiplier 100)))
+     :for a := chord :then (one-rotation a (+ interval (* i multiplier (midi-cents 1))))
      :collect a))
      
 ;(defun rotation-matrix (chord-list)
@@ -144,14 +154,14 @@
   ;; second and third, etc. For intervals other than semitones use <multipler>.
   (let ((sorted-chord (sort (copy-seq chord) #'<)))
     (mapcar
-     (lambda (x) (+ x (* (position x sorted-chord) 100 multiplier)))
+     (lambda (x) (+ x (* (position x sorted-chord) (midi-cents 1) multiplier)))
      sorted-chord)))
 
 (defun expand-chord-down (chord &optional (multiplier 1))
   ;; Same as above, but from top to bottom.
   (let ((sorted-chord (sort (copy-seq chord) #'>)))
     (mapcar
-     (lambda (x) (- x (* (position x sorted-chord) 100 multiplier)))
+     (lambda (x) (- x (* (position x sorted-chord) (midi-cents 1) multiplier)))
      sorted-chord)))
 
 (defun expand-chord-pivot (chord &optional (multiplier 1))
@@ -183,11 +193,11 @@
   (labels ((up (note bottom)
 	     (if (> note bottom)
 		 note
-		 (up (+ note 1200) bottom)))
+		 (up (+ note (midi-cents 12)) bottom)))
 	   (down (note top)
 	     (if (< note top)
 		 note
-		 (down (- note 1200) top))))
+		 (down (- note (midi-cents 12)) top))))
     (loop :for note :in chord
        :if (< note bottom) :collect (up note bottom)
        :else :if (> note top) :collect (down note top)
@@ -202,22 +212,22 @@
   (labels ((range (chord top)
              (if (< (apply #'max chord) top)
 		 chord
-		 (range (mapcar (lambda (x) (- x 1200)) chord) top))))
+		 (range (mapcar (lambda (x) (- x (midi-cents 12))) chord) top))))
     (if (sublistp chord-or-sequence) 
-          (loop :for chord :in chord-or-sequence
-                :collect (range chord top))
-	  (range chord-or-sequence top))))
+	(loop :for chord :in chord-or-sequence
+	   :collect (range chord top))
+	(range chord-or-sequence top))))
 
 (defun bottom-limit (chord-or-sequence bottom)
   ;; transposes chords one or more octaves up until all the notes are above <bottom>
   (labels ((range (chord bottom)
              (if (> (apply #'min chord) bottom)
 		 chord
-		 (range (mapcar (lambda (x) (+ x 1200)) chord) bottom))))
+		 (range (mapcar (lambda (x) (+ x (midi-cents 12))) chord) bottom))))
     (if (sublistp chord-or-sequence) 
-          (loop :for chord :in chord-or-sequence
-                :collect (range chord bottom))
-	  (range chord-or-sequence bottom))))
+	(loop :for chord :in chord-or-sequence
+	   :collect (range chord bottom))
+	(range chord-or-sequence bottom))))
 
 ;;; --------
 ;;; ANALYSIS
@@ -230,7 +240,7 @@
 	   (unique-p (cdr l)))))
 
 (defun mod12 (chord)
-  (mapcar (lambda (x) (mod (/ x 100) 12)) chord))
+  (mapcar (lambda (x) (mod (/ x (midi-cents 1)) 12)) chord))
 
 (defun mod12-unique-p (chord)
   ;; Checks if a list only has unique mod12 elements.
@@ -289,7 +299,7 @@
   ;; returns a total score for the <chord>.
   (loop :for n :in (count-intervals chord)
      :sum (loop :for s :from 0 :upto 11
-	     :when (eql (mod (/ (car n) 100) 12) s)
+	     :when (eql (mod (/ (car n) (midi-cents 1)) 12) s)
 	     :sum (* (elt score s) (cdr n))))) 
 
 (defun simpsons-index (chord)
@@ -327,7 +337,8 @@
 		     (* 2 (count-unique-chords sequence)) 
 		     (* 5 (/ 1 (+ (count-non-uniques sequence) 1)))
 		     (/ (loop :for ch :in sequence
-			   :summing (chord-score ch)) 100))
+			   :summing (chord-score ch))
+			100))
 		    sequence)
      :into results
      :finally (return (sort (copy-seq results) #'list<))))
@@ -555,6 +566,6 @@ a binary list then the function must be called with :binary-list t"
      :until (= c 3)
      :finally (return r)))
 
-
-;;; ---------------
-
+(defun debug-test (n)
+  (loop :for i :upto n
+     :sum i))
