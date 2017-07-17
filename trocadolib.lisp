@@ -50,16 +50,18 @@
       (rotate* lst 0 nil))))
 
 (defun random-no-repeats (bottom top size no-repeat-size)
-    (when (> size no-repeat-size)
-      (loop :repeat size
-	 :with new-last-x
-	 :for last-x := nil :then new-last-x
-	 :collect (loop :for nn := (+ (random (- top (- bottom 1))) bottom)
-		     :do (setf new-last-x (if (< (length last-x) no-repeat-size)
-					      (cons nn last-x)
-					      (butlast (cons nn last-x))))
-		     :until (unique-p new-last-x)
-		     :finally (return nn)))))
+  "Returns a list of random numbers between <bottom> and <top>, with the length <size>.
+Numbers will be unique in each subsequence of length <no-repeat-size>."
+  (when (> size no-repeat-size)
+    (loop :repeat size
+       :with new-last-x
+       :for last-x := nil :then new-last-x
+       :collect (loop :for nn := (+ (random (- top (- bottom 1))) bottom)
+		   :do (setf new-last-x (if (< (length last-x) no-repeat-size)
+					    (cons nn last-x)
+					    (butlast (cons nn last-x))))
+		   :until (unique-p new-last-x)
+		   :finally (return nn)))))
 
 ;;; -----------------
 ;;; PWGL or OpenMusic
@@ -387,17 +389,18 @@
        :for f := (getf body :f)
        :for m := (getf body :mass)
        :for new-vel := (+ v (* (/ f m) dt))
-       :do (progn
-	     (setf (getf body :pos) new-pos)
-	     (setf (getf body :vel) new-vel))
+       :do (progn)
+       (setf (getf body :pos) new-pos)
+       (setf (getf body :vel) new-vel)
        :finally (return (collision-control body-list scale)))))
 
-(defun collision-control (body-list scale)
+(defun collision-control (body-list scale) 
   (loop :with scale-factor = (/ (* scale 3) 100)
      :for (a b) :on body-list :while b
      :do
-     (when (eql (round (/ (getf a :pos) scale-factor))
-		(round (/ (getf b :pos) scale-factor)))
+     (when (or (eql (round (/ (getf a :pos) scale-factor))
+		    (round (/ (getf b :pos) scale-factor)))
+	       (>= (getf a :pos) (getf b :pos))) 
        (progn
 	 (setf (getf a :pos) -1)
 	 (setf (getf b :vel) (/
@@ -405,9 +408,8 @@
 			       (* (getf a :mass) (getf a :vel))
 			       (* (getf b :mass) (getf b :vel)))
 			      (+ (getf a :mass) (getf b :mass))))))
-     :finally (return (remove-if (lambda (x) (eql (getf x :pos) -1))
-				 body-list))))
-       
+     :finally (return (remove-if (lambda (x) (eql (getf x :pos) -1)) body-list))))
+     
 (defun get-offsets (body-list)
   (loop :for body :in body-list
      :collect (getf body :pos)))
@@ -566,6 +568,4 @@ a binary list then the function must be called with :binary-list t"
      :until (= c 3)
      :finally (return r)))
 
-(defun debug-test (n)
-  (loop :for i :upto n
-     :sum i))
+
