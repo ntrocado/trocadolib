@@ -1,0 +1,573 @@
+(IN-PACKAGE :CCL)
+;; this patch was saved with PWGL version 1.0 beta RC 19 (0.9.19-334)
+(ASSERT-PATCH-SAVED-VERSION-NOT-NEWER-THAN (QUOTE ((0 9 19) 334)))
+(LET ((WIN (MAKE-INSTANCE (QUOTE PWGL-PW-WINDOW) :R 1.0 :G 1.0 :B 1.0 :PWGL-SUBVIEWS (LIST (MAKE-INSTANCE (QUOTE PWGL-LISP-CODE-BOX) :PWGL-SUBVIEWS (LIST (MAKE-INSTANCE (QUOTE PWGL-TEXT-SUBVIEW) :R 1.0 :G 1.0 :B 1.0 :BOX-STRING "auto-evaluate" :APPLICATION-WINDOW (MAKE-INSTANCE (QUOTE PWGL-FRED-WINDOW) :TITLE "Text-Editor" :X 100 :Y 100 :WIDTH 732 :HEIGHT 842) :VALUE-STRING ";;; -----------------
+;;; GENERAL UTILITIES
+;;; -----------------
+
+(defun flatten (obj)
+  (do* ((result (list obj))
+        (node result))
+       ((null node) (delete nil result))
+    (cond ((consp (car node))
+           (when (cdar node) (push (cdar node) (cdr node)))
+           (setf (car node) (caar node)))
+          (t (setf node (cdr node))))))
+
+(defun sublistp (input)
+  ;; Returns T if <input> is a list of lists.
+  (when (and (listp input) (loop for i in input thereis (listp i))) t))
+
+(defun remove-duplicate-sublists (list)
+  (remove-duplicates list :test #'equal))
+
+(defun list< (a b)
+  ;; Returns true when the first element of list <a> is less than the
+  ;; first element of list <b>
+  (cond ((null a) (not (null b)))
+        ((null b) nil)
+        ((= (first a) (first b)) nil)
+        (t (< (first a) (first b))) ))
+
+(defun scale-value (value orig-min orig-max dest-min dest-max)
+   (+ (/ (* (- value orig-min)
+            (- dest-max dest-min))
+         orig-max)
+      dest-min))
+
+(defun binary-list (n &optional acc)
+  ;; http://stackoverflow.com/questions/22668217/decimal-to-binary-in-lisp-make-a-non-nested-list
+  (cond ((zerop n) (or acc (list 0)))
+        ((plusp n)
+         (binary-list (ash n -1) (cons (logand 1 n) acc)))
+        (t (error \"~S: non-negative argument required, got ~s\" 'binary-list n))))
+
+(defun rotate (lst n)
+  ;; https://github.com/bbatsov/cl-99-problems/blob/master/p119.lisp
+  (let ((n-int (if (plusp n) n (- (length lst) (abs n)))))
+    (labels ((rotate* (lst index result)
+               (cond
+                 ((null lst) result)
+                 ((< index n-int) (rotate* (rest lst) (1+ index) (cons (first lst) result)))
+                 (t (append lst result)))))
+      (rotate* lst 0 nil))))
+
+(defun random-no-repeats (bottom top size no-repeat-size)
+  \"Returns a list of random numbers between <bottom> and <top>, with the length <size>.
+Numbers will be unique in each subsequence of length <no-repeat-size>.\"
+  (when (> size no-repeat-size)
+    (loop :repeat size
+       :with new-last-x
+       :for last-x := nil :then new-last-x
+       :collect (loop :for nn := (+ (random (- top (- bottom 1))) bottom)
+		   :do (setf new-last-x (if (< (length last-x) no-repeat-size)
+					    (cons nn last-x)
+					    (butlast (cons nn last-x))))
+		   :until (unique-p new-last-x)
+		   :finally (return nn)))))
+
+;;; -----------------
+;;; PWGL or OpenMusic
+;;; -----------------
+
+(defun midi-cents (n)
+  (if (find :om *features*)
+      (* n 100)
+      n))
+
+
+;;; -----------------
+;;; MUSICAL UTILITIES
+;;; -----------------
+
+(defun p->i (pitch-list)
+  ;; Converts a list of pitches into a list of sequential intervals.
+  (loop :for (p q) :on pitch-list :while q :collect (- q p)))
+
+(defun freq-to-midi (freq)
+  ;; Converts a pitch with frequency <freq> in Hz to midi cents.
+  (round (* (midi-cents 1) (+ 69 (* 12 (log (/ freq 440) 2))))))
+
+(defun midi-to-freq (note)
+  ;; Converts a note in midi cents to frequency in Hz.
+  (* 440 (expt 2 (/ (- (/ note (midi-cents 1)) 69) 12))))
+
+(defun durations-to-offsets (duration-list)
+  ;; Given a list of durations, returns a list of the corresponding offsets in ms.
+  (loop :for d :in duration-list
+     :sum d into total
+     :collect total into results
+     :finally (return (butlast (push 0 results)))))
+
+(defun offsets-to-durations (offset-list)
+  ;; Given a list of offsets, returns a list of the corresponding durations in ms.
+  (loop :for (o1 o2) :on offset-list :while o2
+     :collect (- o2 o1)))
+
+(defun harmonic-series (fundamental n-partials)
+  ;; Returns <n-partials> of the harmonic series starting on <fundamental> note in midi cents.
+  (let ((fundamental-freq (midi-to-freq fundamental)))
+    (loop :for p :from 1 :upto n-partials
+       :collect (freq-to-midi (* fundamental-freq p)))))
+
+;;; ---------------
+;;; TRANSFORMATIONS
+;;; ---------------
+
+(defun one-rotation (chord &optional (interval (* 1 12)))
+  ;; Repeatedly transposes the lowest note of <chord>
+  ;; up by an <interval> until it's the highest.
+  (let ((lowest (apply #'min chord))
+	(highest (apply #'max chord)))
+    (loop :for a := lowest :then (+ a interval)
+       :maximizing a :until (> a  highest)
+       :finally (return (subst a lowest chord)))))
+
+(defun chord-rotations (chord &optional (interval (midi-cents 12)))
+  ;; Returns a list of all chord rotations
+  (let ((sorted-chord (sort (copy-seq chord) #'<)))
+    (labels ((upa (a b)
+	       (cond ((> a b) a)
+		     (t (upa (+ a interval) b)))))
+      (append (list sorted-chord)
+	      (loop :for note :in (butlast sorted-chord)
+		 :for achord := (subst (upa note (apply #'max sorted-chord))
+				       note sorted-chord) 
+		 :then (subst (upa note (apply #'max achord))
+			      note achord) 
+		 :collect achord)))))
+
+(defun many-rotations (chord interval iterations multiplier)
+  ;; Rotates the chord; in each rotation the note that goes to the top of the chord
+  ;; is transposed by a increasing amout, multiplied by a <multiplier> interval.
+  (loop :for i :from 0 :upto iterations
+     :for a := chord :then (one-rotation a (+ interval (* i multiplier (midi-cents 1))))
+     :collect a))
+     
+;(defun rotation-matrix (chord-list)
+;  (setq sorted-list (loop :for a :in chord-list :collect (sort (copy-seq a) #'<)))
+;  (loop :for h :from 0 :upto (length sorted-list)
+;	:for pivot :in (first sorted-list)
+;        :append 
+;        (loop :for i :in sorted-list
+;              :for tquot = (- (nth h i) pivot)
+					;              :collect (mapcar (lambda (x) (- x tquot)) i))))
+
+(defun expand-chord-up (chord &optional (multiplier 1))
+  ;; Increases the interval between notes, consecutively from bottom to top,
+  ;; a semitone between the first and second notes, two semitones between the
+  ;; second and third, etc. For intervals other than semitones use <multipler>.
+  (let ((sorted-chord (sort (copy-seq chord) #'<)))
+    (mapcar
+     (lambda (x) (+ x (* (position x sorted-chord) (midi-cents 1) multiplier)))
+     sorted-chord)))
+
+(defun expand-chord-down (chord &optional (multiplier 1))
+  ;; Same as above, but from top to bottom.
+  (let ((sorted-chord (sort (copy-seq chord) #'>)))
+    (mapcar
+     (lambda (x) (- x (* (position x sorted-chord) (midi-cents 1) multiplier)))
+     sorted-chord)))
+
+(defun expand-chord-pivot (chord &optional (multiplier 1))
+  ;; Same as above, expand both up and down around a pivot middle note.
+  (let* ((sorted-chord (sort (copy-seq chord) #'<))
+	 (average-elt (elt sorted-chord (- (round (/ (length sorted-chord) 2)) 1))))
+    (loop :for n :in sorted-chord
+       :if (> n average-elt) :collect n :into over
+       :if (< n average-elt) :collect n :into under
+       :if (= n average-elt) :collect n :into over :and :collect n :into under
+       :finally (return (rest (append (expand-chord-up over multiplier)
+			      (expand-chord-down under multiplier)))))))
+    
+(defun many-expansions (chord multiplier direction iterations)
+  ;; Performs one of the previous operarions several times, returning a
+  ;; sequence of chords.
+  (loop :for new-chord := chord
+     :then (cond ((eq direction 'down) (expand-chord-down new-chord multiplier))
+		 ((eq direction 'up) (expand-chord-up new-chord multiplier))
+		 ((eq direction 'pivot) (expand-chord-pivot new-chord multiplier)))
+     :repeat iterations :collect new-chord))
+
+;;; -------
+;;; VOICING
+;;; -------
+
+(defun transpoct (chord bottom top)
+  ;; Transposes each note of <chord> to the nearest octave that's between <bottom> and <top>.
+  (labels ((up (note bottom)
+	     (if (> note bottom)
+		 note
+		 (up (+ note (midi-cents 12)) bottom)))
+	   (down (note top)
+	     (if (< note top)
+		 note
+		 (down (- note (midi-cents 12)) top))))
+    (loop :for note :in chord
+       :if (< note bottom) :collect (up note bottom)
+       :else :if (> note top) :collect (down note top)
+       :else :collect note)))
+
+(defun transpoct-seq (seq bottom top)
+  ;; Applies the function transpoct to a series of chords.
+  (mapcar #'(lambda (x) (transpoct x bottom top)) seq))
+
+(defun top-limit (chord-or-sequence top)
+  ;; transposes chords one or more octaves down until all the notes are below <top>
+  (labels ((range (chord top)
+             (if (< (apply #'max chord) top)
+		 chord
+		 (range (mapcar (lambda (x) (- x (midi-cents 12))) chord) top))))
+    (if (sublistp chord-or-sequence) 
+	(loop :for chord :in chord-or-sequence
+	   :collect (range chord top))
+	(range chord-or-sequence top))))
+
+(defun bottom-limit (chord-or-sequence bottom)
+  ;; transposes chords one or more octaves up until all the notes are above <bottom>
+  (labels ((range (chord bottom)
+             (if (> (apply #'min chord) bottom)
+		 chord
+		 (range (mapcar (lambda (x) (+ x (midi-cents 12))) chord) bottom))))
+    (if (sublistp chord-or-sequence) 
+	(loop :for chord :in chord-or-sequence
+	   :collect (range chord bottom))
+	(range chord-or-sequence bottom))))
+
+;;; --------
+;;; ANALYSIS
+;;; --------
+
+(defun unique-p (l)
+  ;; Checks if a list only has unique elements.
+  (or (null l)
+      (and (not (member (car l) (cdr l)))
+	   (unique-p (cdr l)))))
+
+(defun mod12 (chord)
+  (mapcar (lambda (x) (mod (/ x (midi-cents 1)) 12)) chord))
+
+(defun mod12-unique-p (chord)
+  ;; Checks if a list only has unique mod12 elements.
+  (unique-p (mod12 chord)))
+
+(defun count-non-uniques (chord-list)
+  ;; Counts the number of chords in <chord-list> that have repeated pitch classes.
+  (loop :for chord :in chord-list
+     :counting (not (mod12-unique-p chord))))
+
+(defun count-unique-chords (chord-list)
+  ;; Counts the number of different mod12 chords in <chord-list>.
+  (let ((mod12-sorted (loop :for chord :in (mapcar #'mod12 chord-list)
+			:collect (copy-seq (sort chord #'<)))))
+    (length (remove-duplicate-sublists mod12-sorted))))
+
+
+;; (defun find-best-expansion (chord direction iterations)
+;;   ;; Finds the multipler for function \"many-expansions\" that generates the least number of chords with repeated pitch classes.
+;;   ;; Returns a dotted pair (best multiplier . number of chords with repeated pitch classes)
+;;   (let* ((results (loop :for m :from 1 :upto 11
+;; 		     :collect (count-non-uniques (many-expansions chord m direction iterations))))
+;; 	 (best (+ 1 (position (apply #'min results) results))))
+;;     (print results)
+;;     (cons best (elt results (- best 1)))))
+
+(defun find-best-expansion (chord direction iterations)
+  ;; Finds the multipler for function \"many-expansions\" that generates the largest number of different chords.
+  ;; Returns a dotted pair (best multiplier . number of different chords).
+  (let* ((results (loop :for m :from 1 :upto 11
+		     :collect (count-unique-chords (many-expansions chord m direction iterations))))
+	 (best (+ 1 (position (apply #'max results) results))))
+    (print results)
+    (cons best (elt results (- best 1)))))
+
+(defun all-intervals (chord)
+  ;; Returns a list of all intervals present in <chord>.
+  (loop :for achord := chord :then (rest achord)
+     :while (> (length achord) 1)
+     :append (loop :for n :in achord
+		:for a := (first achord)
+		:when (not (eql n a)) :collect (- n a))))
+
+(defun count-intervals (chord)
+  ;; Returns a list of dotted pairs (interval . its ocurrences in <chord>).
+  (let* ((intervals (all-intervals chord))
+	 (k (remove-duplicates intervals)))
+    (loop :for i :in k
+       :collect (cons i (count i intervals)))))
+
+(defun chord-score (chord &optional (score '(0 20 16 8 8 4 20 4 12 12 16 20)))
+  ;; Attributes a value to each of the mod 12 intervals present in
+  ;; <chord> according to the optional list <score>, in which the first
+  ;; element is the value of interval class 0, the second element
+  ;; the value of interval class 1, etc. Sums all the values and
+  ;; returns a total score for the <chord>.
+  (loop :for n :in (count-intervals chord)
+     :sum (loop :for s :from 0 :upto 11
+	     :when (eql (mod (/ (car n) (midi-cents 1)) 12) s)
+	     :sum (* (elt score s) (cdr n))))) 
+
+(defun simpsons-index (chord)
+  ;; Attributes a score to <chord> according to the diversity of its
+  ;; intervals, calculated using the formula for Simpson's index.
+  (loop :for n :in (count-intervals chord)
+     :summing (* (cdr n) (- (cdr n) 1)) into r
+     :counting n :into q
+     :finally (return (- 1 (/ r (* q (- q 1)))))))
+
+(defun harmonic-score (chord fundamental)
+  ;; Compares <chord> with the harmonic series starting on <fundamental>.
+  ;; Returns the degree of coincidence. Higher values mean less coincidence.
+  (let ((spectrum (harmonic-series fundamental 40)))
+    (loop :for note :in chord
+       :sum (loop :for p :in spectrum
+	       :minimize (abs (- note p))))))
+
+;;; ---------------
+;;; SORT AND SEARCH
+;;; ---------------
+
+(defun sort-sequences (list-of-chord-sequences func)
+  ;; Sorts <list-of-chord-sequences> acording to the scoring function <func>.
+  (loop :for sequence :in list-of-chord-sequences
+     :collect (cons (loop :for ch :in sequence
+		       :summing (funcall func ch))
+		    sequence)
+     :into results
+     :finally (return (sort (copy-seq results) #'list<))))
+
+(defun find-best-sequence (list-of-chord-sequences)
+  (loop :for sequence :in list-of-chord-sequences
+     :collect (cons (+
+		     (* 2 (count-unique-chords sequence)) 
+		     (* 5 (/ 1 (+ (count-non-uniques sequence) 1)))
+		     (/ (loop :for ch :in sequence
+			   :summing (chord-score ch))
+			100))
+		    sequence)
+     :into results
+     :finally (return (sort (copy-seq results) #'list<))))
+
+  
+;;; --------------
+;;; RHYTHM GRAVITY
+;;; --------------
+
+(defun gravity-force (m1 m2 r)
+  (let ((g (* 6.67398 0.00000000001)))
+    (/ (* g m1 m2) (expt r 2))))
+
+(defun center-of-mass (body-list)
+  (loop
+     :with total-mass = (loop :for a :in body-list :sum (getf a :mass))
+     :for b :in body-list
+     :sum (* (getf b :mass) (getf b :pos)) :into s
+     :finally (return (* (/ 1 total-mass) s))))
+
+(defun create-body-list (positions masses)
+  (loop :for p :in positions
+     :for m :in masses
+     :collect (list ':pos p ':mass m ':vel 0 ':f 0)))
+
+(defun gravity (body-list)
+  (loop
+     :for body :in body-list :collect
+     (loop :for other :in body-list
+	:when (not (eq body other))
+	:sum (* (gravity-force
+		 (getf body :mass)
+		 (getf other :mass)
+		 (- (getf other :pos) (getf body :pos)))
+		(if (< (getf body :pos) (getf other :pos)) 1 -1)))))
+	
+(defun update (body-list dt scale)
+  (let ((f-list (gravity body-list)))
+    (loop :for f :in f-list ;Update gravity-force
+       :for body :in body-list
+       :do (setf (getf body :f) f))
+    (loop :for body :in body-list ;Calculate new positions and velocites
+       :for x := (getf body :pos)
+       :for v := (getf body :vel)
+       :for new-pos := (+ x (* v dt))
+       :for f := (getf body :f)
+       :for m := (getf body :mass)
+       :for new-vel := (+ v (* (/ f m) dt))
+       :do (progn)
+       (setf (getf body :pos) new-pos)
+       (setf (getf body :vel) new-vel)
+       :finally (return (collision-control body-list scale)))))
+
+(defun collision-control (body-list scale) 
+  (loop :with scale-factor = (/ (* scale 3) 100)
+     :for (a b) :on body-list :while b
+     :do
+     (when (or (eql (round (/ (getf a :pos) scale-factor))
+		    (round (/ (getf b :pos) scale-factor)))
+	       (>= (getf a :pos) (getf b :pos))) 
+       (progn
+	 (setf (getf a :pos) -1)
+	 (setf (getf b :vel) (/
+			      (+
+			       (* (getf a :mass) (getf a :vel))
+			       (* (getf b :mass) (getf b :vel)))
+			      (+ (getf a :mass) (getf b :mass))))))
+     :finally (return (remove-if (lambda (x) (eql (getf x :pos) -1)) body-list))))
+     
+(defun get-offsets (body-list)
+  (loop :for body :in body-list
+     :collect (getf body :pos)))
+
+(defun rhythm-gravity (positions masses time &optional (step 20))
+  \"Calculates a list of offsets after <time>\"
+  (let ((scale (- (apply #'max positions) (apply #'min positions))))
+    (loop :for i :upto time
+       :for bl = (create-body-list positions masses) :then (update bl step scale)
+       :finally (return (get-offsets bl)))))
+  
+(defun rg (positions masses time &optional (step 20))
+  \"Outputs a visualisation of the gravity function.\"
+  (loop :with scale = (- (apply #'max positions) (apply #'min positions))
+     :for i :upto time
+     :for bl = (create-body-list positions masses) :then (update bl step scale)
+     :while (> (list-length bl) 1)
+     :do (let ((line (make-string (+ 1 (apply #'max positions))
+				  :initial-element #\\_)))
+	   (loop :for b :in bl
+	      :for position = (round (getf b :pos))
+	      :for c = (cond
+			 ((< (getf b :mass) 300000) \".\")
+			 ((and (>= (getf b :mass) 300000)
+			       (< (getf b :mass) 600000)) \"o\")
+			 ((>= (getf b :mass)) 600000 \"O\"))
+	      :do (replace line c :start1 position :end1 (+ 1 position))
+	      :finally (format t \"~a ~a~%\" line i)))))
+
+(defun make-body-list (magnitudes)
+  (mapcar (lambda (x) (* x 100000)) magnitudes))
+
+(defun time-series (positions masses iterations step)
+  \"Returns a list of offsets for a number of <iterations>.\"
+  (let ((scale (- (apply #'max positions) (apply #'min positions))))
+    (loop :for i :upto iterations
+       :for bl = (update (create-body-list positions masses) step scale)
+       :then (update bl step scale)
+       :collect (get-offsets bl))))
+
+
+;;; ---------
+;;; NECKLACES
+;;; ---------
+
+(defun all-necklaces (limit &optional (fun nil fun-supplied-p))
+  \"Because a necklace can be expressed as a series of zeros (rests) 
+and ones (onsets), converts all numbers from 1 up to <limit> into base-2, 
+and returns the corresponding binary lists. The results can be filtered
+to only include the necklaces for which the function <fun> returns T.\"
+  (loop :for i :from 1 :upto limit
+     :for b := (binary-list i)
+     :when (or (not fun-supplied-p) (funcall fun b)) ;(rhythmic-oddity-p (binary->interonset b))
+     :collect b))
+
+(defun binary->interonset (l)
+  \"Accepts a list <l> of binary digits and returns a list
+of inter-onset intervals. For example (1 1 0 0 0 1) -> (1 4 1).\"
+  (when (member 1 l)
+    (let ((normal-l
+	   (loop :for ll := l :then (rotate ll 1)
+	      :while (zerop (first ll))
+	      :finally (return ll))))
+      (loop :for o :in normal-l
+	 :for c := 0 :then (incf c)
+	 :when (and (plusp o) (plusp c)) :collect c :into r :and :do (setf c 0)
+	 :finally (return (append r (list (+ c 1))))))))
+
+;;; ---------------
+;;; RHYTHMIC ODDITY
+;;; ---------------
+
+(defun rhythmic-oddity-p (input &key (binary-list nil))
+  \"Checks if <input> has the 'rhythmic oddity' property.
+Accepts a list of inter-onset intervals by default. If <input> is
+a binary list then the function must be called with :binary-list t\"
+  (let ((word (if binary-list
+		  (binary->interonset input)
+		  input)))
+    (when (and (listp word) (evenp (reduce #'+ word)))
+      (let ((all-cycles (loop :for u :in word
+			   :for rotated-word := word
+			   :then (append (rest rotated-word)
+					 (list (first rotated-word)))
+			   :collect rotated-word)))
+	(loop :for w :in all-cycles
+	   :unless
+	   (loop :for i :from 1 :upto (- (length w) 1)
+	      :for hu := (reduce #'+ (subseq w 0 i))
+	      :for hv := (reduce #'+ (subseq w i))
+	      :when (= hu hv)
+	      :return (not :it)
+	      :finally (return t))
+	   :return nil
+	   :finally (return t))))))
+
+;;; --------
+;;; EVENNESS
+;;; --------
+
+(defun evenness (ioi)
+  (let* ((n (reduce #'+ ioi))
+	 (k (length ioi))
+	 (h (/ n k))
+	 (m (apply #'max ioi)))
+    (/ 1 (1+ (- m h)))))
+		    
+
+;; (defun hop-and-jump (onsets pulses &optional hop)
+;;   (when (evenp pulses)
+;;     (let* ((necklace (make-array pulses :element-type 'bit))
+;; 	  (available (copy-seq necklace)))
+;;       (print necklace)
+;;       (print available))))
+
+(defun do-it (v &key (min-length 8))
+  (let* ((a (all-necklaces v))
+	 (results (loop :for i :in a
+		     :for s := (binary->interonset i)
+		     :for p := 1 :then (incf p)
+		     :do (when (= (mod p 1000) 0) (format t \"-\"))
+		     :when (and
+			    (> (length s) min-length)
+			    (< (count 1 s) 3)
+			    (rhythmic-oddity-p s)
+			    (> (evenness s) 1/3))
+		     :collect (mapcar #'(lambda (x) (* 100 x)) s)))
+	   (chords (mapcar #'(lambda (l) (necklace-chord 4800 l)) results)))
+    (loop :for c :in chords
+       :for p := 1 :then (incf p)
+       :do (when (= (mod p 100) 0) (format t \"=\"))
+       :when ;(and
+	      (mod12-unique-p c)
+	     ; (> (length c) min-length))
+       :collect c)))
+
+(defun necklace-chord (root inter-onsets)
+  (loop :for n :in inter-onsets
+     :for r := (+ root n) :then (+ r n)
+     :collect r :into results
+     :finally (return (push root results))))
+
+;(all-necklaces 65536 #'(and (alexandria:rcurry #'rhythmic-oddity-p :binary-list t) t))
+
+;;; -----------------
+;;; TRICHORD ANALISYS
+;;; -----------------
+
+;(defun prime-form (l)
+  
+
+(defun first-trichord (l)
+  (loop :for a :in l
+     :for c := 1 :then (if (not (member a r)) (incf c) c)
+     :collect a :into r
+     :until (= c 3)
+     :finally (return r)))
+")) :X 0.31999999999999984D0 :Y 1.8320002708435057D0 :W 0.11 :H 0.015 :BOX-STRING "(Lisp)" :BOX-LAYOUT (MAKE-INSTANCE (QUOTE PWGL-BOX-LAYOUT) :GROUPING-LIST (LIST 1) :ORIG-GROUPING-LIST (LIST 1) :BORDER 0.0084) :PW-FUNCTION (QUOTE LISP-CODE-BOX) :FORMAT-ARGS (LIST :PRINT-ESCAPE T :COLUMNS 1)) (MAKE-INSTANCE (QUOTE PWGL-CHORD-EDITOR) :PWGL-SUBVIEWS (LIST (MAKE-INSTANCE (QUOTE PWGL-CHORD-SUBBOX) :R 1.0 :G 1.0 :B 1.0 :APPLICATION-WINDOW (LET ((WIN (MAKE-INSTANCE (QUOTE CHORD-EDITOR-WINDOW) :DEFAULT-PAGE-LAYOUT (MAKE-INSTANCE (QUOTE ENP-PAGE-LAYOUT-OBJECT) :SYSTEM-LAYOUTS (LIST (MAKE-INSTANCE (QUOTE ENP-SYSTEM-LAYOUT-OBJECT)))) :ENP-PREFERENCES (MAKE-INSTANCE (QUOTE ENP-PREFERENCES-OBJECT)) :SPACING 0.3 :PARTS (LIST (MAKE-INSTANCE (QUOTE PART) :X 0.0 :Y 45.0 :DURATION 0.0 :INSTRUMENT (MAKE-INSTANCE (QUOTE INSTRUMENT) :SCORE-NAME "P" :WRITTEN-CLEF (MAKE-INSTANCE (QUOTE TREBLE-STAFF) :CLEF-LIST (LIST (MAKE-INSTANCE (QUOTE TREBLE-CLEF) :MIDDLE-LINE-DIATONE 41))) :SOUNDING-CLEF (MAKE-INSTANCE (QUOTE TREBLE-STAFF) :CLEF-LIST (LIST (MAKE-INSTANCE (QUOTE TREBLE-CLEF) :MIDDLE-LINE-DIATONE 41))) :PLAYBACK-DEVICE (MAKE-INSTANCE (QUOTE PLAYBACK-DEVICE))) :STAFF (MAKE-INSTANCE (QUOTE CHORD-EDITOR-PIANO-STAFF) :CLEF-LIST (LIST (MAKE-INSTANCE (QUOTE CHORD-EDITOR-TREBLE-CLEF) :STAFF-OFFSET -10.0 :MIDDLE-LINE-DIATONE 41))) :VOICE-LIST (LIST (MAKE-INSTANCE (QUOTE ENP-CHORD-EDITOR) :X 5.0 :WIDTH NIL :CHORDS (LIST (MAKE-INSTANCE (QUOTE CHORD) :PLIST (LIST :TEMP-PITCHES NIL) :NOTES (LIST (MAKE-INSTANCE (QUOTE NOTE) :DURATION-HANDLE (MAKE-INSTANCE (QUOTE DURATION-HANDLE))) (MAKE-INSTANCE (QUOTE NOTE) :MIDI 64 :DURATION-HANDLE (MAKE-INSTANCE (QUOTE DURATION-HANDLE))) (MAKE-INSTANCE (QUOTE NOTE) :MIDI 67 :DURATION-HANDLE (MAKE-INSTANCE (QUOTE DURATION-HANDLE)))) :DURATION-HANDLE (MAKE-INSTANCE (QUOTE DURATION-HANDLE)) :MIN-MAX-LEDGER-DIATONES (VECTOR 0 0))) :PIXELS/SEC 2.875)))) :PAPER (MAKE-INSTANCE (QUOTE ENP-PAPER) :SIZE :A4) :SCALEFX 2.3 :SCALEFY 2.3 :TRANSLX 18.0 :TRANSLY -8.0 :Y 23 :STAFF (MAKE-INSTANCE (QUOTE CHORD-EDITOR-PIANO-STAFF) :CLEF-LIST (LIST (MAKE-INSTANCE (QUOTE CHORD-EDITOR-TREBLE-CLEF) :STAFF-OFFSET -10.0 :MIDDLE-LINE-DIATONE 41))) :TITLE "Chord-Editor2" :X 0 :Y 23 :WIDTH 350 :HEIGHT 432))) WIN))) :X 0.34799999999999987D0 :Y 1.591999771118164D0 :W 0.4 :H 0.5 :BOX-STRING "Chord-Editor" :PWGL-OUTPUTS (LIST (MAKE-INSTANCE (QUOTE PWGL-OUTPUT) :BOX-STRING "chord") (MAKE-INSTANCE (QUOTE PWGL-OUTPUT) :BOX-STRING "pitches")) :BOX-LAYOUT (MAKE-INSTANCE (QUOTE PWGL-BOX-LAYOUT) :GROUPING-LIST (LIST 1) :ORIG-GROUPING-LIST (LIST 1) :BORDER 0.012) :PW-FUNCTION (QUOTE CHORD-EDITOR)) (MAKE-INSTANCE (QUOTE PWGL-BOX) :PWGL-SUBVIEWS (LIST (MAKE-INSTANCE (QUOTE PWGL-VALUE-BOX-SUBVIEW) :BOX-STRING "chord" :CURVAL "()" :VALUE-STRING "()" :CONNECTION NIL)) :X 0.3679999999999999D0 :Y 0.8519997711181642D0 :W 0.26 :H 0.1 :BOX-STRING "expand-chord-up" :PWGL-OUTPUTS (LIST (MAKE-INSTANCE (QUOTE PWGL-OUTPUT))) :BOX-LAYOUT (MAKE-INSTANCE (QUOTE PWGL-BOX-LAYOUT) :GROUPING-LIST (LIST 1) :ORIG-GROUPING-LIST (LIST 1) :EXTENSION-PATTERN (LIST 1) :EXTENSION-LIMIT 2 :BORDER 0.012) :PW-FUNCTION (QUOTE COMMON-LISP-USER::EXPAND-CHORD-UP)) (MAKE-INSTANCE (QUOTE PWGL-CHORD-EDITOR) :PWGL-SUBVIEWS (LIST (MAKE-INSTANCE (QUOTE PWGL-CHORD-SUBBOX) :R 1.0 :G 1.0 :B 1.0 :APPLICATION-WINDOW (LET ((WIN (MAKE-INSTANCE (QUOTE CHORD-EDITOR-WINDOW) :DEFAULT-PAGE-LAYOUT (MAKE-INSTANCE (QUOTE ENP-PAGE-LAYOUT-OBJECT) :SYSTEM-LAYOUTS (LIST (MAKE-INSTANCE (QUOTE ENP-SYSTEM-LAYOUT-OBJECT)))) :ENP-PREFERENCES (MAKE-INSTANCE (QUOTE ENP-PREFERENCES-OBJECT)) :SPACING 0.3 :PARTS (LIST (MAKE-INSTANCE (QUOTE PART) :Y 45.0 :DURATION 0.0 :INSTRUMENT (MAKE-INSTANCE (QUOTE INSTRUMENT) :SCORE-NAME "P" :WRITTEN-CLEF (MAKE-INSTANCE (QUOTE TREBLE-STAFF) :CLEF-LIST (LIST (MAKE-INSTANCE (QUOTE TREBLE-CLEF) :MIDDLE-LINE-DIATONE 41))) :SOUNDING-CLEF (MAKE-INSTANCE (QUOTE TREBLE-STAFF) :CLEF-LIST (LIST (MAKE-INSTANCE (QUOTE TREBLE-CLEF) :MIDDLE-LINE-DIATONE 41))) :PLAYBACK-DEVICE (MAKE-INSTANCE (QUOTE PLAYBACK-DEVICE))) :STAFF (MAKE-INSTANCE (QUOTE CHORD-EDITOR-PIANO-STAFF) :CLEF-LIST (LIST (MAKE-INSTANCE (QUOTE CHORD-EDITOR-TREBLE-CLEF) :STAFF-OFFSET -10.0 :MIDDLE-LINE-DIATONE 41))) :VOICE-LIST (LIST (MAKE-INSTANCE (QUOTE ENP-CHORD-EDITOR) :X 5.0 :WIDTH NIL :CHORDS (LIST (MAKE-INSTANCE (QUOTE CHORD) :NOTES (LIST (MAKE-INSTANCE (QUOTE NOTE) :DURATION-HANDLE (MAKE-INSTANCE (QUOTE DURATION-HANDLE))) (MAKE-INSTANCE (QUOTE NOTE) :MIDI 65 :DURATION-HANDLE (MAKE-INSTANCE (QUOTE DURATION-HANDLE))) (MAKE-INSTANCE (QUOTE NOTE) :MIDI 69 :DURATION-HANDLE (MAKE-INSTANCE (QUOTE DURATION-HANDLE)))) :DURATION-HANDLE (MAKE-INSTANCE (QUOTE DURATION-HANDLE)) :MIN-MAX-LEDGER-DIATONES (VECTOR 0 0))) :PIXELS/SEC 2.875)))) :PAPER (MAKE-INSTANCE (QUOTE ENP-PAPER) :SIZE :A4) :SCALEFX 2.3 :SCALEFY 2.3 :TRANSLX 18.0 :TRANSLY -8.0 :Y 23 :STAFF (MAKE-INSTANCE (QUOTE CHORD-EDITOR-PIANO-STAFF) :CLEF-LIST (LIST (MAKE-INSTANCE (QUOTE CHORD-EDITOR-TREBLE-CLEF) :STAFF-OFFSET -10.0 :MIDDLE-LINE-DIATONE 41))) :TITLE "Chord-Editor2" :X 0 :Y 23 :WIDTH 350 :HEIGHT 432))) WIN) :CONNECTION NIL)) :X 0.37200000149011636D0 :Y 0.5159997696280487D0 :W 0.4 :H 0.5 :BOX-STRING "Chord-Editor" :PWGL-OUTPUTS (LIST (MAKE-INSTANCE (QUOTE PWGL-OUTPUT) :BOX-STRING "chord") (MAKE-INSTANCE (QUOTE PWGL-OUTPUT) :BOX-STRING "pitches")) :BOX-LAYOUT (MAKE-INSTANCE (QUOTE PWGL-BOX-LAYOUT) :GROUPING-LIST (LIST 1) :ORIG-GROUPING-LIST (LIST 1) :BORDER 0.012) :PW-FUNCTION (QUOTE CHORD-EDITOR)) (MAKE-INSTANCE (QUOTE PWGL-CHORD-EDITOR) :PWGL-SUBVIEWS (LIST (MAKE-INSTANCE (QUOTE PWGL-CHORD-SUBBOX) :R 1.0 :G 1.0 :B 1.0 :APPLICATION-WINDOW (LET ((WIN (MAKE-INSTANCE (QUOTE CHORD-EDITOR-WINDOW) :DEFAULT-PAGE-LAYOUT (MAKE-INSTANCE (QUOTE ENP-PAGE-LAYOUT-OBJECT) :SYSTEM-LAYOUTS (LIST (MAKE-INSTANCE (QUOTE ENP-SYSTEM-LAYOUT-OBJECT)))) :ENP-PREFERENCES (MAKE-INSTANCE (QUOTE ENP-PREFERENCES-OBJECT)) :SPACING 0.3 :PARTS (LIST (MAKE-INSTANCE (QUOTE PART) :Y 45.0 :DURATION 0.0 :INSTRUMENT (MAKE-INSTANCE (QUOTE INSTRUMENT) :SCORE-NAME "P" :WRITTEN-CLEF (MAKE-INSTANCE (QUOTE TREBLE-STAFF) :CLEF-LIST (LIST (MAKE-INSTANCE (QUOTE TREBLE-CLEF) :MIDDLE-LINE-DIATONE 41))) :SOUNDING-CLEF (MAKE-INSTANCE (QUOTE TREBLE-STAFF) :CLEF-LIST (LIST (MAKE-INSTANCE (QUOTE TREBLE-CLEF) :MIDDLE-LINE-DIATONE 41))) :PLAYBACK-DEVICE (MAKE-INSTANCE (QUOTE PLAYBACK-DEVICE))) :STAFF (MAKE-INSTANCE (QUOTE CHORD-EDITOR-PIANO-STAFF) :CLEF-LIST (LIST (MAKE-INSTANCE (QUOTE CHORD-EDITOR-TREBLE-CLEF) :STAFF-OFFSET -10.0 :MIDDLE-LINE-DIATONE 41))) :VOICE-LIST (LIST (MAKE-INSTANCE (QUOTE ENP-CHORD-EDITOR) :X 5.0 :WIDTH NIL :CHORDS (LIST (MAKE-INSTANCE (QUOTE CHORD) :NOTES (LIST (MAKE-INSTANCE (QUOTE NOTE) :DURATION-HANDLE (MAKE-INSTANCE (QUOTE DURATION-HANDLE))) (MAKE-INSTANCE (QUOTE NOTE) :MIDI 66 :DURATION-HANDLE (MAKE-INSTANCE (QUOTE DURATION-HANDLE))) (MAKE-INSTANCE (QUOTE NOTE) :MIDI 71 :DURATION-HANDLE (MAKE-INSTANCE (QUOTE DURATION-HANDLE)))) :DURATION-HANDLE (MAKE-INSTANCE (QUOTE DURATION-HANDLE)) :MIN-MAX-LEDGER-DIATONES (VECTOR 0 0))) :PIXELS/SEC 2.875)))) :PAPER (MAKE-INSTANCE (QUOTE ENP-PAPER) :SIZE :A4) :SCALEFX 2.3 :SCALEFY 2.3 :TRANSLX 18.0 :TRANSLY -8.0 :Y 23 :STAFF (MAKE-INSTANCE (QUOTE CHORD-EDITOR-PIANO-STAFF) :CLEF-LIST (LIST (MAKE-INSTANCE (QUOTE CHORD-EDITOR-TREBLE-CLEF) :STAFF-OFFSET -10.0 :MIDDLE-LINE-DIATONE 41))) :TITLE "Chord-Editor2" :X 0 :Y 23 :WIDTH 350 :HEIGHT 432))) WIN) :CONNECTION NIL)) :X 0.9440000029802325D0 :Y 0.5119997681379318D0 :W 0.4 :H 0.5 :BOX-STRING "Chord-Editor" :PWGL-OUTPUTS (LIST (MAKE-INSTANCE (QUOTE PWGL-OUTPUT) :BOX-STRING "chord") (MAKE-INSTANCE (QUOTE PWGL-OUTPUT) :BOX-STRING "pitches")) :BOX-LAYOUT (MAKE-INSTANCE (QUOTE PWGL-BOX-LAYOUT) :GROUPING-LIST (LIST 1) :ORIG-GROUPING-LIST (LIST 1) :BORDER 0.012) :PW-FUNCTION (QUOTE CHORD-EDITOR)) (MAKE-INSTANCE (QUOTE PWGL-BOX) :PWGL-SUBVIEWS (LIST (MAKE-INSTANCE (QUOTE PWGL-VALUE-BOX-SUBVIEW) :BOX-STRING "chord" :CURVAL "()" :VALUE-STRING "()" :CONNECTION NIL) (MAKE-INSTANCE (QUOTE PWGL-VALUE-BOX-SUBVIEW) :BOX-STRING "multiplier" :CURVAL 2 :VALUE-STRING "2")) :X 0.944000001490116D0 :Y 0.8479997696280481D0 :W 0.26 :H 0.17359999 :BOX-STRING "expand-chord-up" :PWGL-OUTPUTS (LIST (MAKE-INSTANCE (QUOTE PWGL-OUTPUT))) :BOX-LAYOUT (MAKE-INSTANCE (QUOTE PWGL-BOX-LAYOUT) :GROUPING-LIST (LIST 1 1) :ORIG-GROUPING-LIST (LIST 1) :EXTENSION-PATTERN (LIST 1) :EXTENSION-LIMIT 2 :BORDER 0.012) :PW-FUNCTION (QUOTE COMMON-LISP-USER::EXPAND-CHORD-UP) :CURRENT-EXTENSION-PATTERN-INDEX* 1) (MAKE-INSTANCE (QUOTE PWGL-CHORD-EDITOR) :PWGL-SUBVIEWS (LIST (MAKE-INSTANCE (QUOTE PWGL-CHORD-SUBBOX) :R 1.0 :G 1.0 :B 1.0 :APPLICATION-WINDOW (LET ((WIN (MAKE-INSTANCE (QUOTE CHORD-EDITOR-WINDOW) :DEFAULT-PAGE-LAYOUT (MAKE-INSTANCE (QUOTE ENP-PAGE-LAYOUT-OBJECT) :SYSTEM-LAYOUTS (LIST (MAKE-INSTANCE (QUOTE ENP-SYSTEM-LAYOUT-OBJECT)))) :ENP-PREFERENCES (MAKE-INSTANCE (QUOTE ENP-PREFERENCES-OBJECT)) :SPACING 0.3 :PARTS (LIST (MAKE-INSTANCE (QUOTE PART) :Y 45.0 :DURATION 0.0 :INSTRUMENT (MAKE-INSTANCE (QUOTE INSTRUMENT) :SCORE-NAME "P" :WRITTEN-CLEF (MAKE-INSTANCE (QUOTE TREBLE-STAFF) :CLEF-LIST (LIST (MAKE-INSTANCE (QUOTE TREBLE-CLEF) :MIDDLE-LINE-DIATONE 41))) :SOUNDING-CLEF (MAKE-INSTANCE (QUOTE TREBLE-STAFF) :CLEF-LIST (LIST (MAKE-INSTANCE (QUOTE TREBLE-CLEF) :MIDDLE-LINE-DIATONE 41))) :PLAYBACK-DEVICE (MAKE-INSTANCE (QUOTE PLAYBACK-DEVICE))) :STAFF (MAKE-INSTANCE (QUOTE CHORD-EDITOR-PIANO-STAFF) :CLEF-LIST (LIST (MAKE-INSTANCE (QUOTE CHORD-EDITOR-TREBLE-CLEF) :STAFF-OFFSET -10.0 :MIDDLE-LINE-DIATONE 41))) :VOICE-LIST (LIST (MAKE-INSTANCE (QUOTE ENP-CHORD-EDITOR) :X 5.0 :WIDTH NIL :CHORDS (LIST (MAKE-INSTANCE (QUOTE CHORD) :NOTES (LIST (MAKE-INSTANCE (QUOTE NOTE) :MIDI 67 :DURATION-HANDLE (MAKE-INSTANCE (QUOTE DURATION-HANDLE))) (MAKE-INSTANCE (QUOTE NOTE) :MIDI 63 :ALT-DELTA-X -12 :DURATION-HANDLE (MAKE-INSTANCE (QUOTE DURATION-HANDLE))) (MAKE-INSTANCE (QUOTE NOTE) :MIDI 58 :DURATION-HANDLE (MAKE-INSTANCE (QUOTE DURATION-HANDLE)))) :DURATION-HANDLE (MAKE-INSTANCE (QUOTE DURATION-HANDLE)) :MIN-MAX-LEDGER-DIATONES (VECTOR 0 0))) :PIXELS/SEC 2.875)))) :PAPER (MAKE-INSTANCE (QUOTE ENP-PAPER) :SIZE :A4) :SCALEFX 2.3 :SCALEFY 2.3 :TRANSLX 18.0 :TRANSLY -8.0 :Y 23 :STAFF (MAKE-INSTANCE (QUOTE CHORD-EDITOR-PIANO-STAFF) :CLEF-LIST (LIST (MAKE-INSTANCE (QUOTE CHORD-EDITOR-TREBLE-CLEF) :STAFF-OFFSET -10.0 :MIDDLE-LINE-DIATONE 41))) :TITLE "Chord-Editor2" :X 0 :Y 23 :WIDTH 350 :HEIGHT 432))) WIN) :CONNECTION NIL)) :X 1.5320000044703482D0 :Y 0.5159997666478162D0 :W 0.4 :H 0.5 :BOX-STRING "Chord-Editor" :PWGL-OUTPUTS (LIST (MAKE-INSTANCE (QUOTE PWGL-OUTPUT) :BOX-STRING "chord") (MAKE-INSTANCE (QUOTE PWGL-OUTPUT) :BOX-STRING "pitches")) :BOX-LAYOUT (MAKE-INSTANCE (QUOTE PWGL-BOX-LAYOUT) :GROUPING-LIST (LIST 1) :ORIG-GROUPING-LIST (LIST 1) :BORDER 0.012) :PW-FUNCTION (QUOTE CHORD-EDITOR)) (MAKE-INSTANCE (QUOTE PWGL-BOX) :PWGL-SUBVIEWS (LIST (MAKE-INSTANCE (QUOTE PWGL-VALUE-BOX-SUBVIEW) :BOX-STRING "chord" :CURVAL "()" :VALUE-STRING "()" :CONNECTION NIL)) :X 1.528D0 :Y 0.8479997711181642D0 :Z -0.1 :W 0.26 :H 0.1 :BOX-STRING "expand-chord-down" :PWGL-OUTPUTS (LIST (MAKE-INSTANCE (QUOTE PWGL-OUTPUT))) :BOX-LAYOUT (MAKE-INSTANCE (QUOTE PWGL-BOX-LAYOUT) :GROUPING-LIST (LIST 1) :ORIG-GROUPING-LIST (LIST 1) :EXTENSION-PATTERN (LIST 1) :EXTENSION-LIMIT 2 :BORDER 0.012) :PW-FUNCTION (QUOTE COMMON-LISP-USER::EXPAND-CHORD-DOWN)) (MAKE-INSTANCE (QUOTE PWGL-BOX) :PWGL-SUBVIEWS (LIST (MAKE-INSTANCE (QUOTE PWGL-VALUE-BOX-SUBVIEW) :BOX-STRING "chord" :CURVAL "()" :VALUE-STRING "()" :CONNECTION NIL)) :X 2.1239999999999997D0 :Y 0.8519997711181642D0 :W 0.26 :H 0.1 :BOX-STRING "expand-chord-pivot" :PWGL-OUTPUTS (LIST (MAKE-INSTANCE (QUOTE PWGL-OUTPUT))) :BOX-LAYOUT (MAKE-INSTANCE (QUOTE PWGL-BOX-LAYOUT) :GROUPING-LIST (LIST 1) :ORIG-GROUPING-LIST (LIST 1) :EXTENSION-PATTERN (LIST 1) :EXTENSION-LIMIT 2 :BORDER 0.012) :PW-FUNCTION (QUOTE COMMON-LISP-USER::EXPAND-CHORD-PIVOT)) (MAKE-INSTANCE (QUOTE PWGL-CHORD-EDITOR) :PWGL-SUBVIEWS (LIST (MAKE-INSTANCE (QUOTE PWGL-CHORD-SUBBOX) :R 1.0 :G 1.0 :B 1.0 :APPLICATION-WINDOW (LET ((WIN (MAKE-INSTANCE (QUOTE CHORD-EDITOR-WINDOW) :DEFAULT-PAGE-LAYOUT (MAKE-INSTANCE (QUOTE ENP-PAGE-LAYOUT-OBJECT) :SYSTEM-LAYOUTS (LIST (MAKE-INSTANCE (QUOTE ENP-SYSTEM-LAYOUT-OBJECT)))) :ENP-PREFERENCES (MAKE-INSTANCE (QUOTE ENP-PREFERENCES-OBJECT)) :SPACING 0.3 :PARTS (LIST (MAKE-INSTANCE (QUOTE PART) :Y 45.0 :DURATION 0.0 :INSTRUMENT (MAKE-INSTANCE (QUOTE INSTRUMENT) :SCORE-NAME "P" :WRITTEN-CLEF (MAKE-INSTANCE (QUOTE TREBLE-STAFF) :CLEF-LIST (LIST (MAKE-INSTANCE (QUOTE TREBLE-CLEF) :MIDDLE-LINE-DIATONE 41))) :SOUNDING-CLEF (MAKE-INSTANCE (QUOTE TREBLE-STAFF) :CLEF-LIST (LIST (MAKE-INSTANCE (QUOTE TREBLE-CLEF) :MIDDLE-LINE-DIATONE 41))) :PLAYBACK-DEVICE (MAKE-INSTANCE (QUOTE PLAYBACK-DEVICE))) :STAFF (MAKE-INSTANCE (QUOTE CHORD-EDITOR-PIANO-STAFF) :CLEF-LIST (LIST (MAKE-INSTANCE (QUOTE CHORD-EDITOR-TREBLE-CLEF) :STAFF-OFFSET -10.0 :MIDDLE-LINE-DIATONE 41))) :VOICE-LIST (LIST (MAKE-INSTANCE (QUOTE ENP-CHORD-EDITOR) :X 5.0 :WIDTH NIL :CHORDS (LIST (MAKE-INSTANCE (QUOTE CHORD) :NOTES (LIST (MAKE-INSTANCE (QUOTE NOTE) :MIDI 68 :DURATION-HANDLE (MAKE-INSTANCE (QUOTE DURATION-HANDLE))) (MAKE-INSTANCE (QUOTE NOTE) :MIDI 64 :DURATION-HANDLE (MAKE-INSTANCE (QUOTE DURATION-HANDLE))) (MAKE-INSTANCE (QUOTE NOTE) :MIDI 59 :DURATION-HANDLE (MAKE-INSTANCE (QUOTE DURATION-HANDLE)))) :DURATION-HANDLE (MAKE-INSTANCE (QUOTE DURATION-HANDLE)) :MIN-MAX-LEDGER-DIATONES (VECTOR 0 0))) :PIXELS/SEC 2.875)))) :PAPER (MAKE-INSTANCE (QUOTE ENP-PAPER) :SIZE :A4) :SCALEFX 2.3 :SCALEFY 2.3 :TRANSLX 18.0 :TRANSLY -8.0 :Y 23 :STAFF (MAKE-INSTANCE (QUOTE CHORD-EDITOR-PIANO-STAFF) :CLEF-LIST (LIST (MAKE-INSTANCE (QUOTE CHORD-EDITOR-TREBLE-CLEF) :STAFF-OFFSET -10.0 :MIDDLE-LINE-DIATONE 41))) :TITLE "Chord-Editor2" :X 0 :Y 23 :WIDTH 350 :HEIGHT 432))) WIN) :CONNECTION NIL)) :X 2.1200000059604647D0 :Y 0.5039997651576993D0 :W 0.4 :H 0.5 :BOX-STRING "Chord-Editor" :PWGL-OUTPUTS (LIST (MAKE-INSTANCE (QUOTE PWGL-OUTPUT) :BOX-STRING "chord") (MAKE-INSTANCE (QUOTE PWGL-OUTPUT) :BOX-STRING "pitches")) :BOX-LAYOUT (MAKE-INSTANCE (QUOTE PWGL-BOX-LAYOUT) :GROUPING-LIST (LIST 1) :ORIG-GROUPING-LIST (LIST 1) :BORDER 0.012) :PW-FUNCTION (QUOTE CHORD-EDITOR))) :X 5 :Y 5 :SCALEFX 0.5 :SCALEFY 0.5 :TRANSLY 0.7400002875328062D0 :CONNECTIONS (LIST (MAKE-INSTANCE (QUOTE PWGL-CONNECTION) :PWBOX1 1 :OUT-BOX 1 :PWBOX2 8 :INPUT-BOX 0 :DRAW-MODE :5POINT :BEZIER-SELECTOR1 (MAKE-INSTANCE (QUOTE PWGL-BEZIER-SELECTOR) :POINT-NUM 1) :BEZIER-SELECTOR2 (MAKE-INSTANCE (QUOTE PWGL-BEZIER-SELECTOR) :POINT-NUM 2) :CONNECTION-POINTS (LIST (MAKE-INSTANCE (QUOTE PWGL-CONNECTION-POINT-SELECTOR) :DX 0.7496666593588888D0 :DY -0.1353999989852308D0)) :CONNECTION-POINT (MAKE-INSTANCE (QUOTE PWGL-CONNECTION-POINT-SELECTOR) :X 2.1039999985843894D0 :Y 1.0319997724592685D0 :DX 0.0 :DY 0.0)) (MAKE-INSTANCE (QUOTE PWGL-CONNECTION) :PWBOX1 8 :OUT-BOX 0 :PWBOX2 9 :INPUT-BOX 0 :DRAW-MODE :5POINT :BEZIER-SELECTOR1 (MAKE-INSTANCE (QUOTE PWGL-BEZIER-SELECTOR) :POINT-NUM 1) :BEZIER-SELECTOR2 (MAKE-INSTANCE (QUOTE PWGL-BEZIER-SELECTOR) :POINT-NUM 2) :CONNECTION-POINTS (LIST (MAKE-INSTANCE (QUOTE PWGL-CONNECTION-POINT-SELECTOR) :DX -0.07199999498948429D0 :DY -0.2334000027105212D0)) :CONNECTION-POINT (MAKE-INSTANCE (QUOTE PWGL-CONNECTION-POINT-SELECTOR) :X 2.1000000045448544D0 :Y 0.6919997709691526D0 :DX 0.0 :DY 0.0)) (MAKE-INSTANCE (QUOTE PWGL-CONNECTION) :PWBOX1 7 :OUT-BOX 0 :PWBOX2 6 :INPUT-BOX 0 :DRAW-MODE :5POINT :BEZIER-SELECTOR1 (MAKE-INSTANCE (QUOTE PWGL-BEZIER-SELECTOR) :POINT-NUM 1) :BEZIER-SELECTOR2 (MAKE-INSTANCE (QUOTE PWGL-BEZIER-SELECTOR) :POINT-NUM 2) :CONNECTION-POINTS (LIST (MAKE-INSTANCE (QUOTE PWGL-CONNECTION-POINT-SELECTOR) :DX -0.0719999957345423D0 :DY -0.22940000196546318D0)) :CONNECTION-POINT (MAKE-INSTANCE (QUOTE PWGL-CONNECTION-POINT-SELECTOR) :X 1.5120000030547378D0 :Y 0.6879997709691526D0 :DX 0.0 :DY 0.0)) (MAKE-INSTANCE (QUOTE PWGL-CONNECTION) :PWBOX1 1 :OUT-BOX 1 :PWBOX2 7 :INPUT-BOX 0 :DRAW-MODE :5POINT :BEZIER-SELECTOR1 (MAKE-INSTANCE (QUOTE PWGL-BEZIER-SELECTOR) :POINT-NUM 1) :BEZIER-SELECTOR2 (MAKE-INSTANCE (QUOTE PWGL-BEZIER-SELECTOR) :POINT-NUM 2) :CONNECTION-POINTS (LIST (MAKE-INSTANCE (QUOTE PWGL-CONNECTION-POINT-SELECTOR) :DX 0.45166665935888895D0 :DY -0.1373999989852308D0)) :CONNECTION-POINT (MAKE-INSTANCE (QUOTE PWGL-CONNECTION-POINT-SELECTOR) :X 1.5079999985843898D0 :Y 1.0319997724592685D0 :DX 0.0 :DY 0.0)) (MAKE-INSTANCE (QUOTE PWGL-CONNECTION) :PWBOX1 1 :OUT-BOX 1 :PWBOX2 5 :INPUT-BOX 0 :DRAW-MODE :5POINT :BEZIER-SELECTOR1 (MAKE-INSTANCE (QUOTE PWGL-BEZIER-SELECTOR) :POINT-NUM 1) :BEZIER-SELECTOR2 (MAKE-INSTANCE (QUOTE PWGL-BEZIER-SELECTOR) :POINT-NUM 2) :CONNECTION-POINTS (LIST (MAKE-INSTANCE (QUOTE PWGL-CONNECTION-POINT-SELECTOR) :DX 0.15966666010394692D0 :DY -0.13739999973028883D0)) :CONNECTION-POINT (MAKE-INSTANCE (QUOTE PWGL-CONNECTION-POINT-SELECTOR) :X 0.9240000000745057D0 :Y 1.0319997724592685D0 :DX 0.0 :DY 0.0)) (MAKE-INSTANCE (QUOTE PWGL-CONNECTION) :PWBOX1 5 :OUT-BOX 0 :PWBOX2 4 :INPUT-BOX 0 :DRAW-MODE :5POINT :BEZIER-SELECTOR1 (MAKE-INSTANCE (QUOTE PWGL-BEZIER-SELECTOR) :POINT-NUM 1) :BEZIER-SELECTOR2 (MAKE-INSTANCE (QUOTE PWGL-BEZIER-SELECTOR) :POINT-NUM 2) :CONNECTION-POINTS (LIST (MAKE-INSTANCE (QUOTE PWGL-CONNECTION-POINT-SELECTOR) :DX -0.07199999722465855D0 :DY -0.1994000004753469D0)) :CONNECTION-POINT (MAKE-INSTANCE (QUOTE PWGL-CONNECTION-POINT-SELECTOR) :X 0.9240000015646221D0 :Y 0.6143997827470304D0 :DX 0.0 :DY 0.0)) (MAKE-INSTANCE (QUOTE PWGL-CONNECTION) :PWBOX1 2 :OUT-BOX 0 :PWBOX2 3 :INPUT-BOX 0 :DRAW-MODE :5POINT :BEZIER-SELECTOR1 (MAKE-INSTANCE (QUOTE PWGL-BEZIER-SELECTOR) :POINT-NUM 1) :BEZIER-SELECTOR2 (MAKE-INSTANCE (QUOTE PWGL-BEZIER-SELECTOR) :POINT-NUM 2) :CONNECTION-POINTS (LIST (MAKE-INSTANCE (QUOTE PWGL-CONNECTION-POINT-SELECTOR) :DX -0.07199999722465855D0 :DY -0.1994000004753469D0)) :CONNECTION-POINT (MAKE-INSTANCE (QUOTE PWGL-CONNECTION-POINT-SELECTOR) :X 0.35200000007450605D0 :Y 0.6919997709691526D0 :DX 0.0 :DY 0.0)) (MAKE-INSTANCE (QUOTE PWGL-CONNECTION) :PWBOX1 1 :OUT-BOX 1 :PWBOX2 2 :INPUT-BOX 0 :DRAW-MODE :5POINT :BEZIER-SELECTOR1 (MAKE-INSTANCE (QUOTE PWGL-BEZIER-SELECTOR) :POINT-NUM 1) :BEZIER-SELECTOR2 (MAKE-INSTANCE (QUOTE PWGL-BEZIER-SELECTOR) :POINT-NUM 2) :CONNECTION-POINTS (LIST (MAKE-INSTANCE (QUOTE PWGL-CONNECTION-POINT-SELECTOR) :DX -0.12833334064111113D0 :DY -0.1353999989852308D0)) :CONNECTION-POINT (MAKE-INSTANCE (QUOTE PWGL-CONNECTION-POINT-SELECTOR) :X 0.34799999858438957D0 :Y 1.0319997724592685D0 :DX 0.0 :DY 0.0))) :X 874 :Y 175 :WIDTH 723 :HEIGHT 725))) (WINDOW-SELECT WIN) WIN)
