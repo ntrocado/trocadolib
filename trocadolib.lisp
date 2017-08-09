@@ -111,7 +111,7 @@ Numbers will be unique in each subsequence of length <no-repeat-size>."
 ;;; TRANSFORMATIONS
 ;;; ---------------
 
-(defun one-rotation (chord &optional (interval (* 1 12)))
+(defun one-rotation (chord &optional (interval (midi-cents 12)))
   ;; Repeatedly transposes the lowest note of <chord>
   ;; up by an <interval> until it's the highest.
   (let ((lowest (apply #'min chord))
@@ -137,7 +137,7 @@ Numbers will be unique in each subsequence of length <no-repeat-size>."
 (defun many-rotations (chord interval iterations multiplier)
   ;; Rotates the chord; in each rotation the note that goes to the top of the chord
   ;; is transposed by a increasing amout, multiplied by a <multiplier> interval.
-  (loop :for i :from 0 :upto iterations
+  (loop :for i :from 0 :below iterations
      :for a := chord :then (one-rotation a (+ interval (* i multiplier (midi-cents 1))))
      :collect a))
      
@@ -531,19 +531,18 @@ a binary list then the function must be called with :binary-list t"
 		     :for s := (binary->interonset i)
 		     :for p := 1 :then (incf p)
 		     :do (when (= (mod p 1000) 0) (format t "-"))
-		     :when (and
-			    (> (length s) min-length)
-			    (< (count 1 s) 3)
-			    (rhythmic-oddity-p s)
-			    (> (evenness s) 1/3))
-		     :collect (mapcar #'(lambda (x) (* 100 x)) s)))
-	   (chords (mapcar #'(lambda (l) (necklace-chord 4800 l)) results)))
+		     :when (and (>= (length s) min-length)
+				(< (count 1 s) 3)
+				(rhythmic-oddity-p s)
+				(> (evenness s) 1/3))
+		     :collect (mapcar #'(lambda (x) (* (midi-cents 1) x)) s)))
+	 (chords (mapcar #'(lambda (l) (necklace-chord (midi-cents 48) l)) results)))
     (loop :for c :in chords
        :for p := 1 :then (incf p)
        :do (when (= (mod p 100) 0) (format t "="))
        :when ;(and
-	      (mod12-unique-p c)
-	     ; (> (length c) min-length))
+       (mod12-unique-p c)
+					; (> (length c) min-length))
        :collect c)))
 
 (defun necklace-chord (root inter-onsets)
@@ -552,7 +551,10 @@ a binary list then the function must be called with :binary-list t"
      :collect r :into results
      :finally (return (push root results))))
 
-;(all-necklaces 65536 #'(and (alexandria:rcurry #'rhythmic-oddity-p :binary-list t) t))
+;;(all-necklaces 65536 #'(and (alexandria:rcurry #'rhythmic-oddity-p :binary-list t) t))
+;;(do-it (expt 2 20) :min-length 9)
+;;(mapcar #'p->i (do-it (expt 2 20) :min-length 9))
+
 
 ;;; -----------------
 ;;; TRICHORD ANALISYS
