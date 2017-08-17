@@ -138,7 +138,11 @@ Numbers will be unique in each subsequence of length <no-repeat-size>."
   ;; Rotates the chord; in each rotation the note that goes to the top of the chord
   ;; is transposed by a increasing amout, multiplied by a <multiplier> interval.
   (loop :for i :from 0 :below iterations
-     :for a := chord :then (one-rotation a (+ interval (* i multiplier (midi-cents 1))))
+     :for a := chord :then
+     (let ((rotated-chord (sort (copy-seq (one-rotation a interval)) #'<)))
+       (append (list (+ (car (last rotated-chord))
+			(* i multiplier)))
+	       (butlast rotated-chord)))
      :collect a))
      
 ;(defun rotation-matrix (chord-list)
@@ -270,7 +274,7 @@ Numbers will be unique in each subsequence of length <no-repeat-size>."
 ;;     (cons best (elt results (- best 1)))))
 
 (defun find-best-expansion (chord direction iterations)
-  ;; Finds the multipler for function "many-expansions" that generates the largest number of different chords.
+  ;; Finds the multipler for function "many-expansions" that generates the largest number of different mod12 chords.
   ;; Returns a dotted pair (best multiplier . number of different chords).
   (let* ((results (loop :for m :from 1 :upto 11
 		     :collect (count-unique-chords (many-expansions chord m direction iterations))))
