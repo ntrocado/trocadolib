@@ -235,6 +235,14 @@ Numbers will be unique in each subsequence of length <no-repeat-size>."
 	   :collect (range chord bottom))
 	(range chord-or-sequence bottom))))
 
+(defun closed-voicing (chord)
+  "Puts <chord> in closed voicing."
+  (let* ((all-rotations (chord-rotations chord))
+	 (range (loop :for ch :in all-rotations
+		   :collect (cons (- (apply #'max ch) (apply #'min ch))
+				  ch))))
+    (cdr (first (sort (copy-seq range) #'list<))))) 
+
 ;;; --------
 ;;; ANALYSIS
 ;;; --------
@@ -260,7 +268,7 @@ Numbers will be unique in each subsequence of length <no-repeat-size>."
 (defun count-unique-chords (chord-list)
   ;; Counts the number of different mod12 chords in <chord-list>.
   (let ((mod12-sorted (loop :for chord :in (mapcar #'mod12 chord-list)
-			:collect (copy-seq (sort chord #'<)))))
+			 :collect (copy-seq (sort chord #'<)))))
     (length (remove-duplicate-sublists mod12-sorted))))
 
 
@@ -273,14 +281,18 @@ Numbers will be unique in each subsequence of length <no-repeat-size>."
 ;;     (print results)
 ;;     (cons best (elt results (- best 1)))))
 
-(defun find-best-expansion (chord direction iterations)
+(defun find-best-expansion (chord direction iterations &optional (decimals 0))
   ;; Finds the multipler for function "many-expansions" that generates the largest number of different mod12 chords.
   ;; Returns a dotted pair (best multiplier . number of different chords).
-  (let* ((results (loop :for m :from 1 :upto 11
-		     :collect (count-unique-chords (many-expansions chord m direction iterations))))
-	 (best (+ 1 (position (apply #'max results) results))))
-    (print results)
-    (cons best (elt results (- best 1)))))
+  (let* ((results (loop :for m :from 1 :upto 11 :by (/ 1
+						       (expt 10 decimals))
+		     :collect (count-unique-chords (mapcar (lambda (x) (mapcar #'round x))
+							   (many-expansions chord
+									    m
+									    direction
+									    iterations)))))
+	 (best (+ 1 (position (apply #'max results) results)))) 
+    (values best (elt results (- best 1)) results)))
 
 (defun all-intervals (chord)
   ;; Returns a list of all intervals present in <chord>.
@@ -328,6 +340,15 @@ Numbers will be unique in each subsequence of length <no-repeat-size>."
 ;;; SORT AND SEARCH
 ;;; ---------------
 
+(defun sort-chords (list-of-chords func)
+  "Sorts <list-of-chords> acording to the scoring function <func>."
+  (loop :for ch :in list-of-chords
+     :collect (cons (funcall func ch)
+		    (list ch))
+     :into results
+     :finally (return (sort (copy-seq results) #'list<))))
+
+  
 (defun sort-sequences (list-of-chord-sequences func)
   ;; Sorts <list-of-chord-sequences> acording to the scoring function <func>.
   (loop :for sequence :in list-of-chord-sequences
