@@ -19,18 +19,27 @@
   (remove-duplicates list :test #'equal))
 
 (defun list< (a b)
-  ;; Returns true when the first element of list <a> is less than the
+  ;; Returns true when the first element of list <a> is lower than the
   ;; first element of list <b>
   (cond ((null a) (not (null b)))
         ((null b) nil)
         ((= (first a) (first b)) nil)
         (t (< (first a) (first b))) ))
 
+(defun list> (a b)
+  ;; Returns true when the first element of list <a> is higher than the
+  ;; first element of list <b>
+  (cond ((null a) (not (null b)))
+        ((null b) nil)
+        ((= (first a) (first b)) nil)
+        (t (> (first a) (first b)))))
+
+
 (defun scale-value (value orig-min orig-max dest-min dest-max)
-   (+ (/ (* (- value orig-min)
-            (- dest-max dest-min))
-         orig-max)
-      dest-min))
+  (+ (/ (* (- value orig-min)
+	   (- dest-max dest-min))
+	(- orig-max orig-min))
+     dest-min))
 
 (defun binary-list (n &optional acc)
   ;; http://stackoverflow.com/questions/22668217/decimal-to-binary-in-lisp-make-a-non-nested-list
@@ -83,7 +92,7 @@ Numbers will be unique in each subsequence of length <no-repeat-size>."
 
 (defun freq-to-midi (freq)
   ;; Converts a pitch with frequency <freq> in Hz to midi cents.
-  (round (* (midi-cents 1) (+ 69 (* 12 (log (/ freq 440) 2))))))
+  (* (midi-cents 1) (+ 69 (* 12 (log (/ freq 440) 2)))))
 
 (defun midi-to-freq (note)
   ;; Converts a note in midi cents to frequency in Hz.
@@ -102,7 +111,7 @@ Numbers will be unique in each subsequence of length <no-repeat-size>."
      :collect (- o2 o1)))
 
 (defun harmonic-series (fundamental n-partials)
-  ;; Returns <n-partials> of the harmonic series starting on <fundamental> note in midi cents.
+  "Returns <n-partials> of the harmonic series starting on <fundamental> note in midi cents."
   (let ((fundamental-freq (midi-to-freq fundamental)))
     (loop :for p :from 1 :upto n-partials
        :collect (freq-to-midi (* fundamental-freq p)))))
@@ -309,54 +318,88 @@ Numbers will be unique in each subsequence of length <no-repeat-size>."
     (loop :for i :in k
        :collect (cons i (count i intervals)))))
 
-(defun chord-score (chord &optional (score '(0 20 16 8 8 4 20 4 12 12 16 20)))
+(defun interval-score (chord &optional (score '(0 20 16 8 8 4 20 4 12 12 16 20)))
   ;; Attributes a value to each of the mod 12 intervals present in
   ;; <chord> according to the optional list <score>, in which the first
   ;; element is the value of interval class 0, the second element
   ;; the value of interval class 1, etc. Sums all the values and
   ;; returns a total score for the <chord>.
-  (loop :for n :in (count-intervals chord)
-     :sum (loop :for s :from 0 :upto 11
-	     :when (eql (mod (/ (car n) (midi-cents 1)) 12) s)
-	     :sum (* (elt score s) (cdr n))))) 
+  (let ((sorted-chord (copy-seq (sort chord #'<))))
+    (loop :for n :in (count-intervals sorted-chord)
+       :sum (loop :for s :from 0 :upto 11
+	       :when (eql (mod (/ (car n) (midi-cents 1)) 12) s)
+	       :sum (* (elt score s) (cdr n))))))
 
 (defun simpsons-index (chord)
-  ;; Attributes a score to <chord> according to the diversity of its
-  ;; intervals, calculated using the formula for Simpson's index.
-  (loop :for n :in (count-intervals chord)
-     :summing (* (cdr n) (- (cdr n) 1)) into r
-     :counting n :into q
-     :finally (return (- 1 (/ r (* q (- q 1)))))))
+  "Attributes a score to the ordered set <chord> according to the diversity of its intervals, calculated using the formula for Simpson's index of diversity. There must be at least two different intervals."
+  (let ((intervals (count-intervals chord)))
+    (when (> (length intervals) 1)
+      (loop :for n :in (count-intervals chord)
+	 :summing (* (cdr n) (- (cdr n) 1)) into r
+	 :summing (cdr n) :into q
+	 :finally (return (- 1 (/ r (* q (- q 1)))))))))
 
-(defun harmonic-score (chord fundamental)
+(defun harmonic-coincidence (chord fundamental &key (inverse nil) (compare-spectra nil))
   ;; Compares <chord> with the harmonic series starting on <fundamental>.
-  ;; Returns the degree of coincidence. Higher values mean less coincidence.
-  (let ((spectrum (harmonic-series fundamental 40)))
-    (loop :for note :in chord
-       :sum (loop :for p :in spectrum
-	       :minimize (abs (- note p))))))
+  ;; Returns the degree of coincidence. Higher values mean more coincidence.
+  (let* ((spectrum (harmonic-series fundamental 100))
+	 (new-chord (if compare-spectra
+			(flatten (mapcar (lambda (x) (harmonic-series x 14)) chord))
+			chord))
+	 (degree (/ 1 (1+ (/ (loop :for note :in new-chord
+				:sum (loop :for p :in spectrum
+					:minimize (abs (- note p))))
+			     (length new-chord))))))
+    (if inverse
+	(- 1 degree)
+	degree)))
 
 ;;; ---------------
 ;;; SORT AND SEARCH
 ;;; ---------------
 
-(defun sort-chords (list-of-chords func)
-  "Sorts <list-of-chords> acording to the scoring function <func>."
-  (loop :for ch :in list-of-chords
-     :collect (cons (funcall func ch)
-		    (list ch))
-     :into results
-     :finally (return (sort (copy-seq results) #'list<))))
+;; (defun sort-chords (list-of-chords func)
+;;   "Sorts <list-of-chords> acording to the scoring function <func>."
+;;   (loop :for ch :in list-of-chords
+;;      :collect (cons (funcall func ch)
+;; 		    (list ch))
+;;      :into results
+;;      :finally (return (sort (copy-seq results) #'list<))))
 
+(defun sort-chords (list-of-chords weights functions)
+  (labels ((scaled-score (s) (mapcar (lambda (x) (scale-value x
+							      (apply #'min s)
+							      (apply #'max s)
+							      0
+							      1))
+				     s)))
+    (let* ((weights-sum (reduce #'+ weights))
+	   (relative-weights (mapcar (lambda (x) (/ x weights-sum)) weights))
+	   (scores (loop :for f :in functions
+		      :for w :in relative-weights
+		      :collect (mapcar (lambda (x) (* x w)) (scaled-score (mapcar f list-of-chords))) :into r
+		      :do (print r)
+		      :finally (return (loop :for i :from 0 :below (length (first r))
+					  :collect (reduce #'+ (mapcar (lambda (x) (nth i x)) r)))))))
+      (sort (copy-seq (mapcar #'list scores list-of-chords)) #'list>))))
   
-(defun sort-sequences (list-of-chord-sequences func)
-  ;; Sorts <list-of-chord-sequences> acording to the scoring function <func>.
-  (loop :for sequence :in list-of-chord-sequences
-     :collect (cons (loop :for ch :in sequence
-		       :summing (funcall func ch))
-		    sequence)
-     :into results
-     :finally (return (sort (copy-seq results) #'list<))))
+;; (defun sort-sequences (list-of-chord-sequences func)
+;;   ;; Sorts <list-of-chord-sequences> acording to the scoring function <func>.
+;;   (loop :for sequence :in list-of-chord-sequences
+;;      :collect (cons (loop :for ch :in sequence
+;; 		       :summing (funcall func ch))
+;; 		    sequence)
+;;      :into results
+;;      :finally (return (sort (copy-seq results) #'list<))))
+
+;; (defun sort-sequences (list-of-chord-sequences &rest weight-functions)
+;;   ;; Sorts <list-of-chord-sequences> acording to the scoring function <func>.
+;;   (loop :for sequence :in list-of-chord-sequences
+;;      :collect (cons (loop :for ch :in sequence))
+;;      :summing (funcall func ch)
+;;      sequence
+;;      :into results
+;;      :finally (return (sort (copy-seq results) #'list<))))
 
 (defun find-best-sequence (list-of-chord-sequences)
   (loop :for sequence :in list-of-chord-sequences
