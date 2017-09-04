@@ -129,7 +129,7 @@ Numbers will be unique in each subsequence of length <no-repeat-size>."
        :maximizing a :until (> a  highest)
        :finally (return (subst a lowest chord)))))
 
-(defun chord-rotations (chord &optional (interval (midi-cents 12)))
+(defun all-rotations (chord &optional (interval (midi-cents 12)))
   ;; Returns a list of all chord rotations
   (let ((sorted-chord (sort (copy-seq chord) #'<)))
     (labels ((upa (a b)
@@ -153,15 +153,24 @@ Numbers will be unique in each subsequence of length <no-repeat-size>."
 			(* i multiplier)))
 	       (butlast rotated-chord)))
      :collect a))
-     
-;(defun rotation-matrix (chord-list)
-;  (setq sorted-list (loop :for a :in chord-list :collect (sort (copy-seq a) #'<)))
-;  (loop :for h :from 0 :upto (length sorted-list)
-;	:for pivot :in (first sorted-list)
-;        :append 
-;        (loop :for i :in sorted-list
-;              :for tquot = (- (nth h i) pivot)
-					;              :collect (mapcar (lambda (x) (- x tquot)) i))))
+
+(defun many-many-rotations (chord interval iterations)
+          multiplier-min multiplier-max multiplier-step
+          &key (rounded t)
+  (loop :for m :from multiplier-min :upto multiplier-max :by multiplier-step 
+     :collect (if rounded)
+      (mapcar (lambda (x) (mapcar #'round x)) (many-rotations chord interval iterations m))
+      (many-rotations chord interval iterations m)))
+
+(defun rotation-matrix (chord &optional (interval (midi-cents 12)))
+  (let* ((rotations (all-rotations chord interval))
+	 (sorted-list (mapcar (lambda (x) (sort (copy-seq x) #'<)) rotations)))
+    (loop :for h :from 0 :upto (length rotations)
+       :for pivot :in (first sorted-list)
+       :append 
+       (loop :for i :in sorted-list
+	  :for tquot := (- (nth h i) pivot)
+	  :collect (mapcar (lambda (x) (- x tquot)) i)))))
 
 (defun expand-chord-up (chord &optional (multiplier 1))
   ;; Increases the interval between notes, consecutively from bottom to top,
@@ -246,8 +255,8 @@ Numbers will be unique in each subsequence of length <no-repeat-size>."
 
 (defun closed-voicing (chord)
   "Puts <chord> in closed voicing."
-  (let* ((all-rotations (chord-rotations chord))
-	 (range (loop :for ch :in all-rotations
+  (let* ((rotations (all-rotations chord))
+	 (range (loop :for ch :in rotations
 		   :collect (cons (- (apply #'max ch) (apply #'min ch))
 				  ch))))
     (cdr (first (sort (copy-seq range) #'list<))))) 
@@ -401,17 +410,17 @@ Numbers will be unique in each subsequence of length <no-repeat-size>."
 ;;      :into results
 ;;      :finally (return (sort (copy-seq results) #'list<))))
 
-(defun find-best-sequence (list-of-chord-sequences)
-  (loop :for sequence :in list-of-chord-sequences
-     :collect (cons (+
-		     (* 2 (count-unique-chords sequence)) 
-		     (* 5 (/ 1 (+ (count-non-uniques sequence) 1)))
-		     (/ (loop :for ch :in sequence
-			   :summing (chord-score ch))
-			100))
-		    sequence)
-     :into results
-     :finally (return (sort (copy-seq results) #'list<))))
+;; (defun find-best-sequence (list-of-chord-sequences)
+;;   (loop :for sequence :in list-of-chord-sequences
+;;      :collect (cons (+
+;; 		     (* 2 (count-unique-chords sequence)) 
+;; 		     (* 5 (/ 1 (+ (count-non-uniques sequence) 1)))
+;; 		     (/ (loop :for ch :in sequence
+;; 			   :summing (chord-score ch))
+;; 			100))
+;; 		    sequence)
+;;      :into results
+;;      :finally (return (sort (copy-seq results) #'list<))))
 
   
 ;;; --------------
