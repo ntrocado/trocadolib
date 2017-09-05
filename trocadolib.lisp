@@ -36,10 +36,15 @@
 
 
 (defun scale-value (value orig-min orig-max dest-min dest-max)
-  (+ (/ (* (- value orig-min)
-	   (- dest-max dest-min))
-	(- orig-max orig-min))
-     dest-min))
+  "Scales <value> from an original to a destination range. If <value>, <orig-min> and <orig-max> are all the same, returns the lowest value of the destination bracket."
+  (when (and (>= value orig-min)
+	     (<= value orig-max))
+    (if (= value orig-min orig-max)
+	dest-min
+	(+ (/ (* (- value orig-min)
+		 (- dest-max dest-min))
+	      (- orig-max orig-min))
+	   dest-min))))
 
 (defun binary-list (n &optional acc)
   ;; http://stackoverflow.com/questions/22668217/decimal-to-binary-in-lisp-make-a-non-nested-list
@@ -154,23 +159,26 @@ Numbers will be unique in each subsequence of length <no-repeat-size>."
 	       (butlast rotated-chord)))
      :collect a))
 
-(defun many-many-rotations (chord interval iterations)
-          multiplier-min multiplier-max multiplier-step
-          &key (rounded t)
+(defun many-many-rotations (chord interval iterations
+			    multiplier-min multiplier-max multiplier-step
+			    &key (rounded t))
   (loop :for m :from multiplier-min :upto multiplier-max :by multiplier-step 
-     :collect (if rounded)
-      (mapcar (lambda (x) (mapcar #'round x)) (many-rotations chord interval iterations m))
-      (many-rotations chord interval iterations m)))
+     :collect (if rounded
+		  (mapcar (lambda (x) (mapcar #'round x)) (many-rotations chord interval iterations m))
+		  (many-rotations chord interval iterations m))))
 
-(defun rotation-matrix (chord &optional (interval (midi-cents 12)))
+(defun rotation-matrix (chord &key (interval (midi-cents 12)) (rem-dups t))
   (let* ((rotations (all-rotations chord interval))
-	 (sorted-list (mapcar (lambda (x) (sort (copy-seq x) #'<)) rotations)))
-    (loop :for h :from 0 :upto (length rotations)
-       :for pivot :in (first sorted-list)
-       :append 
-       (loop :for i :in sorted-list
-	  :for tquot := (- (nth h i) pivot)
-	  :collect (mapcar (lambda (x) (- x tquot)) i)))))
+	 (sorted-list (mapcar (lambda (x) (sort (copy-seq x) #'<)) rotations))
+	 (r (loop :for h :from 0 :upto (length rotations)
+	       :for pivot :in (first sorted-list)
+	       :append 
+	       (loop :for i :in sorted-list
+		  :for tquot := (- (nth h i) pivot)
+		  :collect (mapcar (lambda (x) (- x tquot)) i)))))
+    (if rem-dups
+	(remove-duplicates r :test #'equal :from-end t)
+	r)))
 
 (defun expand-chord-up (chord &optional (multiplier 1))
   ;; Increases the interval between notes, consecutively from bottom to top,
@@ -375,21 +383,27 @@ Numbers will be unique in each subsequence of length <no-repeat-size>."
 ;;      :into results
 ;;      :finally (return (sort (copy-seq results) #'list<))))
 
-(defun sort-chords (list-of-chords weights functions)
+(defun sort-chords (list-of-chords functions &key function-weights)
   (labels ((scaled-score (s) (mapcar (lambda (x) (scale-value x
 							      (apply #'min s)
 							      (apply #'max s)
 							      0
 							      1))
 				     s)))
-    (let* ((weights-sum (reduce #'+ weights))
+    (let* ((weights (if function-weights
+			function-weights
+			(make-list (length functions) :initial-element 1)))
+	   (weights-sum (reduce #'+ weights))
 	   (relative-weights (mapcar (lambda (x) (/ x weights-sum)) weights))
 	   (scores (loop :for f :in functions
 		      :for w :in relative-weights
-		      :collect (mapcar (lambda (x) (* x w)) (scaled-score (mapcar f list-of-chords))) :into r
+		      :collect (mapcar (lambda (x) (* x w))
+				       (scaled-score (mapcar f list-of-chords)))
+		      :into r
 		      :do (print r)
 		      :finally (return (loop :for i :from 0 :below (length (first r))
-					  :collect (reduce #'+ (mapcar (lambda (x) (nth i x)) r)))))))
+					  :collect (reduce #'+ (mapcar (lambda (x) (nth i x))
+								       r)))))))
       (sort (copy-seq (mapcar #'list scores list-of-chords)) #'list>))))
   
 ;; (defun sort-sequences (list-of-chord-sequences func)
