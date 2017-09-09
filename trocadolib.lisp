@@ -12,23 +12,23 @@
           (t (setf node (cdr node))))))
 
 (defun sublistp (input)
-  ;; Returns T if <input> is a list of lists.
+  "Returns T if <input> is a list of lists."
   (when (and (listp input) (loop for i in input thereis (listp i))) t))
 
 (defun remove-duplicate-sublists (list)
   (remove-duplicates list :test #'equal))
 
 (defun list< (a b)
-  ;; Returns true when the first element of list <a> is lower than the
-  ;; first element of list <b>
+  "Returns true when the first element of list <a> is lower than the
+  first element of list <b>"
   (cond ((null a) (not (null b)))
         ((null b) nil)
         ((= (first a) (first b)) nil)
         (t (< (first a) (first b))) ))
 
 (defun list> (a b)
-  ;; Returns true when the first element of list <a> is higher than the
-  ;; first element of list <b>
+  "Returns true when the first element of list <a> is higher than the
+  first element of list <b>"
   (cond ((null a) (not (null b)))
         ((null b) nil)
         ((= (first a) (first b)) nil)
@@ -47,7 +47,8 @@
 	   dest-min))))
 
 (defun binary-list (n &optional acc)
-  ;; http://stackoverflow.com/questions/22668217/decimal-to-binary-in-lisp-make-a-non-nested-list
+  "Accepts a non-negative integer, returns its binary representation in list form."
+  ;; http://stackoverflow.com/questions/22668217/decimal-to-binary-in-lisp-make-a-non-nested-list 
   (cond ((zerop n) (or acc (list 0)))
         ((plusp n)
          (binary-list (ash n -1) (cons (logand 1 n) acc)))
@@ -82,36 +83,37 @@ Numbers will be unique in each subsequence of length <no-repeat-size>."
 ;;; -----------------
 
 (defun midi-cents (n)
+  "Converts a midi note number to the midicents format used by OpenMusic if this is being
+run in that environment."
   (if (find :om *features*)
       (* n 100)
       n))
-
 
 ;;; -----------------
 ;;; MUSICAL UTILITIES
 ;;; -----------------
 
 (defun p->i (pitch-list)
-  ;; Converts a list of pitches into a list of sequential intervals.
+  "Converts a list of pitches into a list of sequential intervals."
   (loop :for (p q) :on pitch-list :while q :collect (- q p)))
 
 (defun freq-to-midi (freq)
-  ;; Converts a pitch with frequency <freq> in Hz to midi cents.
+  "Converts a pitch with frequency <freq> in Hz to midi cents."
   (* (midi-cents 1) (+ 69 (* 12 (log (/ freq 440) 2)))))
 
 (defun midi-to-freq (note)
-  ;; Converts a note in midi cents to frequency in Hz.
+  "Converts a note in midi cents to frequency in Hz."
   (* 440 (expt 2 (/ (- (/ note (midi-cents 1)) 69) 12))))
 
 (defun durations-to-offsets (duration-list)
-  ;; Given a list of durations, returns a list of the corresponding offsets in ms.
+  "Given a list of durations, returns a list of the corresponding offsets in ms."
   (loop :for d :in duration-list
      :sum d into total
      :collect total into results
      :finally (return (butlast (push 0 results)))))
 
 (defun offsets-to-durations (offset-list)
-  ;; Given a list of offsets, returns a list of the corresponding durations in ms.
+  "Given a list of offsets, returns a list of the corresponding durations in ms."
   (loop :for (o1 o2) :on offset-list :while o2
      :collect (- o2 o1)))
 
@@ -126,8 +128,8 @@ Numbers will be unique in each subsequence of length <no-repeat-size>."
 ;;; ---------------
 
 (defun one-rotation (chord &optional (interval (midi-cents 12)))
-  ;; Repeatedly transposes the lowest note of <chord>
-  ;; up by an <interval> until it's the highest.
+  "Repeatedly transposes the lowest note of <chord>
+up by an <interval> until it's the highest."
   (let ((lowest (apply #'min chord))
 	(highest (apply #'max chord)))
     (loop :for a := lowest :then (+ a interval)
@@ -135,7 +137,7 @@ Numbers will be unique in each subsequence of length <no-repeat-size>."
        :finally (return (subst a lowest chord)))))
 
 (defun all-rotations (chord &optional (interval (midi-cents 12)))
-  ;; Returns a list of all chord rotations
+  "Returns a list of all <chord> rotations."
   (let ((sorted-chord (sort (copy-seq chord) #'<)))
     (labels ((upa (a b)
 	       (cond ((> a b) a)
@@ -149,25 +151,34 @@ Numbers will be unique in each subsequence of length <no-repeat-size>."
 		 :collect achord)))))
 
 (defun many-rotations (chord interval iterations multiplier)
-  ;; Rotates the chord; in each rotation the note that goes to the top of the chord
-  ;; is transposed by a increasing amout, multiplied by a <multiplier> interval.
+  "Rotates the <chord> using <interval> (see above);
+in each one of the <iterations> the note that goes to the top of the chord 
+is transposed by a increasing amount, multiplied by a <multiplier>."
   (loop :for i :from 0 :below iterations
      :for a := chord :then
      (let ((rotated-chord (sort (copy-seq (one-rotation a interval)) #'<)))
        (append (list (+ (car (last rotated-chord))
-			(* i multiplier)))
+			(* i (midi-cents multiplier))))
 	       (butlast rotated-chord)))
      :collect a))
 
 (defun many-many-rotations (chord interval iterations
 			    multiplier-min multiplier-max multiplier-step
 			    &key (rounded t))
+  "Returns a list of lists with all the 'many-rotations' for a range of multipliers,
+between <multiplier-min> and <multiplier-max>, progressing by <multiplier-step>.
+The :rounded keyword returns results in 12TET when set to T, and microtonal when
+set to NIL."
   (loop :for m :from multiplier-min :upto multiplier-max :by multiplier-step 
      :collect (if rounded
-		  (mapcar (lambda (x) (mapcar #'round x)) (many-rotations chord interval iterations m))
+		  (mapcar (lambda (x) (mapcar #'round x))
+			  (many-rotations chord interval iterations m))
 		  (many-rotations chord interval iterations m))))
 
 (defun rotation-matrix (chord &key (interval (midi-cents 12)) (rem-dups t))
+  "Returns a matrix of rotations, where for each note in <chord> there's a set of
+rotations, transposed to keep that pivot note constant. The :rem-dups keyword
+removes ocurring duplicate chords."
   (let* ((rotations (all-rotations chord interval))
 	 (sorted-list (mapcar (lambda (x) (sort (copy-seq x) #'<)) rotations))
 	 (r (loop :for h :from 0 :upto (length rotations)
@@ -181,23 +192,23 @@ Numbers will be unique in each subsequence of length <no-repeat-size>."
 	r)))
 
 (defun expand-chord-up (chord &optional (multiplier 1))
-  ;; Increases the interval between notes, consecutively from bottom to top,
-  ;; a semitone between the first and second notes, two semitones between the
-  ;; second and third, etc. For intervals other than semitones use <multipler>.
+  "Increases the interval between notes, consecutively from bottom to top,
+a semitone between the first and second notes, two semitones between the
+ second and third, etc. For intervals other than semitones use <multipler>."
   (let ((sorted-chord (sort (copy-seq chord) #'<)))
     (mapcar
      (lambda (x) (+ x (* (position x sorted-chord) (midi-cents 1) multiplier)))
      sorted-chord)))
 
 (defun expand-chord-down (chord &optional (multiplier 1))
-  ;; Same as above, but from top to bottom.
+  "Same as above, but from top to bottom."
   (let ((sorted-chord (sort (copy-seq chord) #'>)))
     (mapcar
      (lambda (x) (- x (* (position x sorted-chord) (midi-cents 1) multiplier)))
      sorted-chord)))
 
 (defun expand-chord-pivot (chord &optional (multiplier 1))
-  ;; Same as above, expand both up and down around a pivot middle note.
+  "Same as above, expand both up and down around a pivot middle note."
   (let* ((sorted-chord (sort (copy-seq chord) #'<))
 	 (average-elt (elt sorted-chord (- (round (/ (length sorted-chord) 2)) 1))))
     (loop :for n :in sorted-chord
@@ -205,11 +216,10 @@ Numbers will be unique in each subsequence of length <no-repeat-size>."
        :if (< n average-elt) :collect n :into under
        :if (= n average-elt) :collect n :into over :and :collect n :into under
        :finally (return (rest (append (expand-chord-up over multiplier)
-			      (expand-chord-down under multiplier)))))))
+				      (expand-chord-down under multiplier)))))))
     
 (defun many-expansions (chord multiplier direction iterations)
-  ;; Performs one of the previous operarions several times, returning a
-  ;; sequence of chords.
+  "Performs one of the previous operarions several times, returning a sequence of chords."
   (loop :for new-chord := chord
      :then (cond ((eq direction 'down) (expand-chord-down new-chord multiplier))
 		 ((eq direction 'up) (expand-chord-up new-chord multiplier))
@@ -221,7 +231,7 @@ Numbers will be unique in each subsequence of length <no-repeat-size>."
 ;;; -------
 
 (defun transpoct (chord bottom top)
-  ;; Transposes each note of <chord> to the nearest octave that's between <bottom> and <top>.
+  "Transposes each note of <chord> to the nearest octave between <bottom> and <top>."
   (labels ((up (note bottom)
 	     (if (> note bottom)
 		 note
@@ -236,11 +246,11 @@ Numbers will be unique in each subsequence of length <no-repeat-size>."
        :else :collect note)))
 
 (defun transpoct-seq (seq bottom top)
-  ;; Applies the function transpoct to a series of chords.
+  "Applies the function transpoct to a series of chords."
   (mapcar #'(lambda (x) (transpoct x bottom top)) seq))
 
 (defun top-limit (chord-or-sequence top)
-  ;; transposes chords one or more octaves down until all the notes are below <top>
+  "Transposes chords one or more octaves down until all the notes are below <top>."
   (labels ((range (chord top)
              (if (< (apply #'max chord) top)
 		 chord
@@ -251,7 +261,7 @@ Numbers will be unique in each subsequence of length <no-repeat-size>."
 	(range chord-or-sequence top))))
 
 (defun bottom-limit (chord-or-sequence bottom)
-  ;; transposes chords one or more octaves up until all the notes are above <bottom>
+  "Transposes chords one or more octaves up until all the notes are above <bottom>."
   (labels ((range (chord bottom)
              (if (> (apply #'min chord) bottom)
 		 chord
@@ -274,7 +284,7 @@ Numbers will be unique in each subsequence of length <no-repeat-size>."
 ;;; --------
 
 (defun unique-p (l)
-  ;; Checks if a list only has unique elements.
+  "Checks if a list only has unique elements."
   (or (null l)
       (and (not (member (car l) (cdr l)))
 	   (unique-p (cdr l)))))
@@ -283,16 +293,16 @@ Numbers will be unique in each subsequence of length <no-repeat-size>."
   (mapcar (lambda (x) (mod (/ x (midi-cents 1)) 12)) chord))
 
 (defun mod12-unique-p (chord)
-  ;; Checks if a list only has unique mod12 elements.
+  "Checks if a list only has unique mod12 elements."
   (unique-p (mod12 chord)))
 
 (defun count-non-uniques (chord-list)
-  ;; Counts the number of chords in <chord-list> that have repeated pitch classes.
+  "Counts the number of chords in <chord-list> that have repeated pitch classes."
   (loop :for chord :in chord-list
      :counting (not (mod12-unique-p chord))))
 
 (defun count-unique-chords (chord-list)
-  ;; Counts the number of different mod12 chords in <chord-list>.
+  "Counts the number of different mod12 chords in <chord-list>."
   (let ((mod12-sorted (loop :for chord :in (mapcar #'mod12 chord-list)
 			 :collect (copy-seq (sort chord #'<)))))
     (length (remove-duplicate-sublists mod12-sorted))))
@@ -308,8 +318,7 @@ Numbers will be unique in each subsequence of length <no-repeat-size>."
 ;;     (cons best (elt results (- best 1)))))
 
 (defun find-best-expansion (chord direction iterations &optional (decimals 0))
-  ;; Finds the multipler for function "many-expansions" that generates the largest number of different mod12 chords.
-  ;; Returns a dotted pair (best multiplier . number of different chords).
+  "Finds the multipler for function "many-expansions" that generates the largest number of different mod12 chords. Returns a dotted pair (best multiplier . number of different chords)."
   (let* ((results (loop :for m :from 1 :upto 11 :by (/ 1
 						       (expt 10 decimals))
 		     :collect (count-unique-chords (mapcar (lambda (x) (mapcar #'round x))
@@ -321,7 +330,7 @@ Numbers will be unique in each subsequence of length <no-repeat-size>."
     (values best (elt results (- best 1)) results)))
 
 (defun all-intervals (chord)
-  ;; Returns a list of all intervals present in <chord>.
+  "Returns a list of all intervals present in <chord>."
   (loop :for achord := chord :then (rest achord)
      :while (> (length achord) 1)
      :append (loop :for n :in achord
@@ -329,18 +338,16 @@ Numbers will be unique in each subsequence of length <no-repeat-size>."
 		:when (not (eql n a)) :collect (- n a))))
 
 (defun count-intervals (chord)
-  ;; Returns a list of dotted pairs (interval . its ocurrences in <chord>).
+  "Returns a list of dotted pairs (interval . its ocurrences in <chord>)."
   (let* ((intervals (all-intervals chord))
 	 (k (remove-duplicates intervals)))
     (loop :for i :in k
        :collect (cons i (count i intervals)))))
 
 (defun interval-score (chord &optional (score '(0 20 16 8 8 4 20 4 12 12 16 20)))
-  ;; Attributes a value to each of the mod 12 intervals present in
-  ;; <chord> according to the optional list <score>, in which the first
-  ;; element is the value of interval class 0, the second element
-  ;; the value of interval class 1, etc. Sums all the values and
-  ;; returns a total score for the <chord>.
+  "Attributes a value to each of the mod 12 intervals present in <chord> according to the 
+optional list <score>, in which the first element is the value of interval class 0, the second 
+element the value of interval class 1, etc. Sums all the values and returns a total score for the <chord>."
   (let ((sorted-chord (copy-seq (sort chord #'<))))
     (loop :for n :in (count-intervals sorted-chord)
        :sum (loop :for s :from 0 :upto 11
@@ -357,8 +364,8 @@ Numbers will be unique in each subsequence of length <no-repeat-size>."
 	 :finally (return (- 1 (/ r (* q (- q 1)))))))))
 
 (defun harmonic-coincidence (chord fundamental &key (inverse nil) (compare-spectra nil))
-  ;; Compares <chord> with the harmonic series starting on <fundamental>.
-  ;; Returns the degree of coincidence. Higher values mean more coincidence.
+  "Compares <chord> with the harmonic series starting on <fundamental>.
+Returns the degree of coincidence. Higher values mean more coincidence."
   (let* ((spectrum (harmonic-series fundamental 100))
 	 (new-chord (if compare-spectra
 			(flatten (mapcar (lambda (x) (harmonic-series x 14)) chord))
@@ -375,15 +382,10 @@ Numbers will be unique in each subsequence of length <no-repeat-size>."
 ;;; SORT AND SEARCH
 ;;; ---------------
 
-;; (defun sort-chords (list-of-chords func)
-;;   "Sorts <list-of-chords> acording to the scoring function <func>."
-;;   (loop :for ch :in list-of-chords
-;;      :collect (cons (funcall func ch)
-;; 		    (list ch))
-;;      :into results
-;;      :finally (return (sort (copy-seq results) #'list<))))
-
 (defun sort-chords (list-of-chords functions &key function-weights)
+  "Scores <list-of-chords> according to <functions> and <function-weights>, returning a sorted tree 
+in the form ((<score1> (<chord1>)) (<score2> (<chord2>)) ... (<scoren> (<chordn>))), where <score1> 
+is the highest."
   (labels ((scaled-score (s) (mapcar (lambda (x) (scale-value x
 							      (apply #'min s)
 							      (apply #'max s)
@@ -541,7 +543,6 @@ Numbers will be unique in each subsequence of length <no-repeat-size>."
        :then (update bl step scale)
        :collect (get-offsets bl))))
 
-
 ;;; ---------
 ;;; NECKLACES
 ;;; ---------
@@ -569,74 +570,73 @@ of inter-onset intervals. For example (1 1 0 0 0 1) -> (1 4 1)."
 	 :when (and (plusp o) (plusp c)) :collect c :into r :and :do (setf c 0)
 	 :finally (return (append r (list (+ c 1))))))))
 
-;;; ---------------
-;;; RHYTHMIC ODDITY
-;;; ---------------
+;;; ------------------
+;;; GEOMETRY OF RHYTHM
+;;; ------------------
 
 (defun rhythmic-oddity-p (input &key (binary-list nil))
   "Checks if <input> has the 'rhythmic oddity' property.
 Accepts a list of inter-onset intervals by default. If <input> is
 a binary list then the function must be called with :binary-list t"
-  (let ((word (if binary-list
-		  (binary->interonset input)
-		  input)))
+  (let ((word (if binary-list)))
+      (binary->interonset input)
+      input
     (when (and (listp word) (evenp (reduce #'+ word)))
-      (let ((all-cycles (loop :for u :in word
-			   :for rotated-word := word
-			   :then (append (rest rotated-word)
-					 (list (first rotated-word)))
-			   :collect rotated-word)))
-	(loop :for w :in all-cycles
-	   :unless
-	   (loop :for i :from 1 :upto (- (length w) 1)
-	      :for hu := (reduce #'+ (subseq w 0 i))
-	      :for hv := (reduce #'+ (subseq w i))
-	      :when (= hu hv)
-	      :return (not :it)
-	      :finally (return t))
-	   :return nil
-	   :finally (return t))))))
+      (let ((all-cycles (loop :for u :in word)))
+         :for rotated-word := word
+         :then (append (rest rotated-word))
+           (list (first rotated-word))
+         :collect rotated-word)))
+  (loop :for w :in all-cycles
+     :unless
+     (loop :for i :from 1 :upto (- (length w) 1)
+        :for hu := (reduce #'+ (subseq w 0 i))
+        :for hv := (reduce #'+ (subseq w i))
+        :when (= hu hv)
+        :return (not :it)
+        :finally (return t))
+     :return nil
+     :finally (return t)))
 
 ;;; --------
 ;;; EVENNESS
 ;;; --------
 
 (defun evenness (ioi)
-  (let* ((n (reduce #'+ ioi))
-	 (k (length ioi))
-	 (h (/ n k))
-	 (m (apply #'max ioi)))
-    (/ 1 (1+ (- m h)))))
-		    
+  (let* ((n (reduce #'+ ioi)))
+   (k (length ioi))
+   (h (/ n k))
+   (m (apply #'max ioi)
+    (/ 1 (1+ (- m h))))))
 
-;; (defun hop-and-jump (onsets pulses &optional hop)
-;;   (when (evenp pulses)
-;;     (let* ((necklace (make-array pulses :element-type 'bit))
-;; 	  (available (copy-seq necklace)))
-;;       (print necklace)
-;;       (print available))))
+;;; ---------------
+;;; SPECIFIC SEARCH
+;;; ---------------
 
 (defun do-it (v &key (min-length 8))
-  (let* ((a (all-necklaces v))
-	 (results (loop :for i :in a
-		     :for s := (binary->interonset i)
-		     :for p := 1 :then (incf p)
-		     :do (when (= (mod p 1000) 0) (format t "-"))
-		     :when (and (>= (length s) min-length)
-				(< (count 1 s) 3)
-				(rhythmic-oddity-p s)
-				(> (evenness s) 1/3))
-		     :collect (mapcar #'(lambda (x) (* (midi-cents 1) x)) s)))
-	 (chords (mapcar #'(lambda (l) (necklace-chord (midi-cents 48) l)) results)))
+  "What are all necklaces with lenght higher than <min-length>, at least three onsets, possessing
+the rhythmic oddity property and with an evenness degree higher than 1/3?"
+  (let* ((a (all-necklaces v)))
+   (results (loop :for i :in a)
+         :for s := (binary->interonset i)
+         :for p := 1 :then (incf p)
+         :do (when (= (mod p 1000) 0) (format t "-"))
+         :when (and (>= (length s) min-length))
+        (< (count 1 s) 3)
+        (rhythmic-oddity-p s)
+        (> (evenness s) 1/3
+         :collect (mapcar #'(lambda (x) (* (midi-cents 1) x)) s)))
+   (chords (mapcar #'(lambda (l) (necklace-chord (midi-cents 48) l)) results)
     (loop :for c :in chords
        :for p := 1 :then (incf p)
        :do (when (= (mod p 100) 0) (format t "="))
        :when ;(and
        (mod12-unique-p c)
-					; (> (length c) min-length))
-       :collect c)))
+          ; (> (length c) min-length))
+       :collect c))))
 
 (defun necklace-chord (root inter-onsets)
+  "Builds a pitch collection starting on <root> and following the <inter-onsets> intervals."
   (loop :for n :in inter-onsets
      :for r := (+ root n) :then (+ r n)
      :collect r :into results
@@ -646,13 +646,13 @@ a binary list then the function must be called with :binary-list t"
 ;;(do-it (expt 2 20) :min-length 9)
 ;;(mapcar #'p->i (do-it (expt 2 20) :min-length 9))
 
-
 ;;; -----------------
 ;;; TRICHORD ANALISYS
 ;;; -----------------
 
-;(defun prime-form (l)
-  
+;;; TODO
+
+;;;(defun prime-form (l)
 
 (defun first-trichord (l)
   (loop :for a :in l
@@ -660,5 +660,3 @@ a binary list then the function must be called with :binary-list t"
      :collect a :into r
      :until (= c 3)
      :finally (return r)))
-
-
