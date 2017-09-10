@@ -296,10 +296,10 @@ a semitone between the first and second notes, two semitones between the
   "Checks if a list only has unique mod12 elements."
   (unique-p (mod12 chord)))
 
-(defun count-non-uniques (chord-list)
+(defun count-chords-with-repeated-pcs (chord-list)
   "Counts the number of chords in <chord-list> that have repeated pitch classes."
   (loop :for chord :in chord-list
-     :counting (not (mod12-unique-p chord))))
+	:counting (not (mod12-unique-p chord))))
 
 (defun count-unique-chords (chord-list)
   "Counts the number of different mod12 chords in <chord-list>."
@@ -342,7 +342,18 @@ a semitone between the first and second notes, two semitones between the
   (let* ((intervals (all-intervals chord))
 	 (k (remove-duplicates intervals)))
     (loop :for i :in k
-       :collect (cons i (count i intervals)))))
+	  :collect (cons i (count i intervals)))))
+
+(defun duplicate-pcs (chord)
+  "Returns the number of duplicate pitch classes."
+  (loop :with mod12-chord := (mod12 chord)
+	:for n :in mod12-chord
+	:count (> (count n mod12-chord) 1)))
+
+(defun duplicate-pcs-relative (chord)
+  "Returns the number of duplicate pitch classes, in proportion to the number of notes in <chord>."
+  (/ (duplicate-pcs chord)
+     (length chord)))
 
 (defun interval-score (chord &optional (score '(0 20 16 8 8 4 20 4 12 12 16 20)))
   "Attributes a value to each of the mod 12 intervals present in <chord> according to the 
@@ -350,9 +361,9 @@ optional list <score>, in which the first element is the value of interval class
 element the value of interval class 1, etc. Sums all the values and returns a total score for the <chord>."
   (let ((sorted-chord (copy-seq (sort chord #'<))))
     (loop :for n :in (count-intervals sorted-chord)
-       :sum (loop :for s :from 0 :upto 11
-	       :when (eql (mod (/ (car n) (midi-cents 1)) 12) s)
-	       :sum (* (elt score s) (cdr n))))))
+	  :sum (loop :for s :from 0 :upto 11
+		     :when (eql (mod (/ (car n) (midi-cents 1)) 12) s)
+		       :sum (* (elt score s) (cdr n))))))
 
 (defun simpsons-index (chord)
   "Attributes a score to the ordered set <chord> according to the diversity of its intervals, calculated using the formula for Simpson's index of diversity. There must be at least two different intervals."
@@ -384,9 +395,8 @@ Returns the degree of coincidence. Higher values mean more coincidence."
 
 (defun sort-chords (list-of-chords functions
 		    &key (weights (make-list (length functions) :initial-element 1)))
-  "Scores <list-of-chords> according to <functions> and <weights>, returning a sorted tree 
-in the form ((<score1> (<chord1>)) (<score2> (<chord2>)) ... (<scoren> (<chordn>))), where <score1> 
-is the highest."
+  "Scores <list-of-chords> according to <functions> and <weights>, returning a sorted tree of
+relative values in the form ((<score1> (<chord1>)) (<score2> (<chord2>)) ... (<scoren> (<chordn>))), where <score1> is the highest."
   (labels ((scaled-score (s) (mapcar (lambda (x) (scale-value x
 							      (apply #'min s)
 							      (apply #'max s)
@@ -405,8 +415,25 @@ is the highest."
 					  :collect (reduce #'+ (mapcar (lambda (x) (nth i x))
 								       r)))))))
       (sort (copy-seq (mapcar #'list scores list-of-chords)) #'list>))))
-  
-;; (defun sort-sequences (list-of-chord-sequences func)
+
+(defun sort-sequences (list-of-chord-sequences functions
+		       &key (weights (make-list (length functions) :initial-element 1)))
+  "Scores <list-of-chord-sequences> according to <functions> and <weights>, returning a sorted tree
+in the form ((<score1> ((chord 1a) (chord 1b) ... (chord 1n)))
+             (<score2> ((chord 2a) (chord 2b) ... (chord 2n)))
+             ... 
+             (<scoren> ((chord na) (chord nb) ... (chord nn)))), where <score1> is the highest."
+  (sort (copy-seq (mapcar (lambda (chord-sequence)
+			    (cons
+			     (reduce #'+ (mapcar #'car
+						 (sort-chords chord-sequence
+							      functions
+							      :weights weights)))
+			     chord-sequence))
+			  list-of-chord-sequences))
+	#'list>))
+
+  ;; (defun sort-sequences (list-of-chord-sequences func)
 ;;   ;; Sorts <list-of-chord-sequences> acording to the scoring function <func>.
 ;;   (loop :for sequence :in list-of-chord-sequences
 ;;      :collect (cons (loop :for ch :in sequence
@@ -436,7 +463,7 @@ is the highest."
 ;;      :into results
 ;;      :finally (return (sort (copy-seq results) #'list<))))
 
-  
+
 ;;; --------------
 ;;; RHYTHM GRAVITY
 ;;; --------------
