@@ -318,7 +318,7 @@ a semitone between the first and second notes, two semitones between the
 ;;     (cons best (elt results (- best 1)))))
 
 (defun find-best-expansion (chord direction iterations &optional (decimals 0))
-  "Finds the multipler for function "many-expansions" that generates the largest number of different mod12 chords. Returns a dotted pair (best multiplier . number of different chords)."
+  "Finds the multipler for function <many-expansions> that generates the largest number of different mod12 chords. Returns a dotted pair (best multiplier . number of different chords)."
   (let* ((results (loop :for m :from 1 :upto 11 :by (/ 1
 						       (expt 10 decimals))
 		     :collect (count-unique-chords (mapcar (lambda (x) (mapcar #'round x))
@@ -382,8 +382,9 @@ Returns the degree of coincidence. Higher values mean more coincidence."
 ;;; SORT AND SEARCH
 ;;; ---------------
 
-(defun sort-chords (list-of-chords functions &key function-weights)
-  "Scores <list-of-chords> according to <functions> and <function-weights>, returning a sorted tree 
+(defun sort-chords (list-of-chords functions
+		    &key (weights (make-list (length functions) :initial-element 1)))
+  "Scores <list-of-chords> according to <functions> and <weights>, returning a sorted tree 
 in the form ((<score1> (<chord1>)) (<score2> (<chord2>)) ... (<scoren> (<chordn>))), where <score1> 
 is the highest."
   (labels ((scaled-score (s) (mapcar (lambda (x) (scale-value x
@@ -392,10 +393,7 @@ is the highest."
 							      0
 							      1))
 				     s)))
-    (let* ((weights (if function-weights
-			function-weights
-			(make-list (length functions) :initial-element 1)))
-	   (weights-sum (reduce #'+ weights))
+    (let* ((weights-sum (reduce #'+ weights))
 	   (relative-weights (mapcar (lambda (x) (/ x weights-sum)) weights))
 	   (scores (loop :for f :in functions
 		      :for w :in relative-weights
@@ -575,39 +573,38 @@ of inter-onset intervals. For example (1 1 0 0 0 1) -> (1 4 1)."
 ;;; ------------------
 
 (defun rhythmic-oddity-p (input &key (binary-list nil))
-  "Checks if <input> has the 'rhythmic oddity' property.
+  "Checks if <input> has the rhythmic oddity property.
 Accepts a list of inter-onset intervals by default. If <input> is
 a binary list then the function must be called with :binary-list t"
-  (let ((word (if binary-list)))
-      (binary->interonset input)
-      input
+  (let ((word (if binary-list
+		  (binary->interonset input)
+		  input)))
     (when (and (listp word) (evenp (reduce #'+ word)))
-      (let ((all-cycles (loop :for u :in word)))
-         :for rotated-word := word
-         :then (append (rest rotated-word))
-           (list (first rotated-word))
-         :collect rotated-word)))
-  (loop :for w :in all-cycles
-     :unless
-     (loop :for i :from 1 :upto (- (length w) 1)
-        :for hu := (reduce #'+ (subseq w 0 i))
-        :for hv := (reduce #'+ (subseq w i))
-        :when (= hu hv)
-        :return (not :it)
-        :finally (return t))
-     :return nil
-     :finally (return t)))
+      (let ((all-cycles (loop :for u :in word
+			   :for rotated-word := word
+			   :then (append (rest rotated-word) (list (first rotated-word)))
+			   :collect rotated-word)))
+	(loop :for w :in all-cycles
+	   :unless
+	   (loop :for i :from 1 :upto (- (length w) 1)
+	      :for hu := (reduce #'+ (subseq w 0 i))
+	      :for hv := (reduce #'+ (subseq w i))
+	      :when (= hu hv)
+	      :return (not :it)
+	      :finally (return t))
+	   :return nil
+	   :finally (return t))))))
 
 ;;; --------
 ;;; EVENNESS
 ;;; --------
 
 (defun evenness (ioi)
-  (let* ((n (reduce #'+ ioi)))
-   (k (length ioi))
-   (h (/ n k))
-   (m (apply #'max ioi)
-    (/ 1 (1+ (- m h))))))
+  (let* ((n (reduce #'+ ioi))
+	 (k (length ioi))
+	 (h (/ n k))
+	 (m (apply #'max ioi)))
+    (/ 1 (1+ (- m h)))))
 
 ;;; ---------------
 ;;; SPECIFIC SEARCH
@@ -616,24 +613,25 @@ a binary list then the function must be called with :binary-list t"
 (defun do-it (v &key (min-length 8))
   "What are all necklaces with lenght higher than <min-length>, at least three onsets, possessing
 the rhythmic oddity property and with an evenness degree higher than 1/3?"
-  (let* ((a (all-necklaces v)))
-   (results (loop :for i :in a)
-         :for s := (binary->interonset i)
-         :for p := 1 :then (incf p)
-         :do (when (= (mod p 1000) 0) (format t "-"))
-         :when (and (>= (length s) min-length))
-        (< (count 1 s) 3)
-        (rhythmic-oddity-p s)
-        (> (evenness s) 1/3
-         :collect (mapcar #'(lambda (x) (* (midi-cents 1) x)) s)))
-   (chords (mapcar #'(lambda (l) (necklace-chord (midi-cents 48) l)) results)
+  (let* ((a (all-necklaces v))
+	 (results (loop :for i :in a
+		     :for s := (binary->interonset i)
+		     :for p := 1 :then (incf p)
+		     :do (when (= (mod p 1000) 0) (format t "-"))
+		     :when (and (>= (length s) min-length)
+				(< (count 1 s) 3)
+				(rhythmic-oddity-p s)
+				(> (evenness s) 1/3))
+		     :collect (mapcar #'(lambda (x) (* (midi-cents 1) x)) s)))
+	 (chords (mapcar #'(lambda (l) (necklace-chord (midi-cents 48) l))
+			 results)))
     (loop :for c :in chords
        :for p := 1 :then (incf p)
-       :do (when (= (mod p 100) 0) (format t "="))
-       :when ;(and
-       (mod12-unique-p c)
-          ; (> (length c) min-length))
-       :collect c))))
+       :do (when (= (mod p 100)
+		    0)
+	     (format t "="))
+       :when (mod12-unique-p c)
+       :collect c)))
 
 (defun necklace-chord (root inter-onsets)
   "Builds a pitch collection starting on <root> and following the <inter-onsets> intervals."
