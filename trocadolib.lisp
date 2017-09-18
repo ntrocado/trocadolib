@@ -578,49 +578,54 @@ and ones (onsets), converts all numbers from 1 up to <limit> into base-2,
 and returns the corresponding binary lists. The results can be filtered
 to only include the necklaces for which the function <fun> returns T."
   (loop :for i :from 1 :upto limit
-     :for b := (binary-list i)
-     :when (or (not fun-supplied-p) (funcall fun b)) ;(rhythmic-oddity-p (binary->interonset b))
-     :collect b))
+	:for b := (binary-list i)
+	:when (or (not fun-supplied-p) (funcall fun b))
+	  :collect b))
 
 (defun binary->interonset (l)
   "Accepts a list <l> of binary digits and returns a list
 of inter-onset intervals. For example (1 1 0 0 0 1) -> (1 4 1)."
   (when (member 1 l)
     (let ((normal-l
-	   (loop :for ll := l :then (rotate ll 1)
-	      :while (zerop (first ll))
-	      :finally (return ll))))
+	    (loop :for ll := l :then (rotate ll 1)
+		  :while (zerop (first ll))
+		  :finally (return ll))))
       (loop :for o :in normal-l
-	 :for c := 0 :then (incf c)
-	 :when (and (plusp o) (plusp c)) :collect c :into r :and :do (setf c 0)
-	 :finally (return (append r (list (+ c 1))))))))
+	    :for c := 0 :then (incf c)
+	    :when (and (plusp o) (plusp c))
+	      :collect c :into r :and :do (setf c 0)
+	    :finally (return (append r (list (+ c 1))))))))
+
+(defun interonset->binary (l)
+  "Accepts a list <l> of inter-onset intervals and returns a list
+of binary digits. For example (1 4 1) -> (1 1 0 0 0 1)."
+  (unless (member-if-not #'plusp l)
+    (flatten (mapcar (lambda (x) (if (eq x '1)
+				     '1
+				     (list '1
+					   (make-list (1- x)
+						      :initial-element '0))))
+		     l))))
 
 ;;; ------------------
 ;;; GEOMETRY OF RHYTHM
 ;;; ------------------
 
-(defun rhythmic-oddity-p (input &key (binary-list nil))
+(defun rhythmic-oddity-p (input &key (interonset-intervals nil))
   "Checks if <input> has the rhythmic oddity property.
-Accepts a list of inter-onset intervals by default. If <input> is
-a binary list then the function must be called with :binary-list t"
-  (let ((word (if binary-list
-		  (binary->interonset input)
-		  input)))
-    (when (and (listp word) (evenp (reduce #'+ word)))
-      (let ((all-cycles (loop :for u :in word
-			   :for rotated-word := word
-			   :then (append (rest rotated-word) (list (first rotated-word)))
-			   :collect rotated-word)))
-	(loop :for w :in all-cycles
-	   :unless
-	   (loop :for i :from 1 :upto (- (length w) 1)
-	      :for hu := (reduce #'+ (subseq w 0 i))
-	      :for hv := (reduce #'+ (subseq w i))
-	      :when (= hu hv)
-	      :return (not :it)
-	      :finally (return t))
-	   :return nil
-	   :finally (return t))))))
+Accepts a list of binary digits by default. If <input> is a list of inter-onset intervals
+then the function must be called with :interonset-intervals t."
+  (let* ((necklace (if interonset-intervals
+		       (interonset->binary input)
+		       input)) 
+	 (w (length necklace)))
+    (when (evenp w)
+      (loop :for pulse :in necklace
+	    :for i :from 0
+	    :never (and (plusp pulse)
+			(plusp (elt necklace
+				    (mod (+ i (/ w 2))
+					 w))))))))
 
 ;;; --------
 ;;; EVENNESS
