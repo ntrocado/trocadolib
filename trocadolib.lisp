@@ -574,13 +574,19 @@ in the form ((<score1> ((chord 1a) (chord 1b) ... (chord 1n)))
 
 (defun all-necklaces (limit &optional (fun nil fun-supplied-p))
   "Because a necklace can be expressed as a series of zeros (rests) 
-and ones (onsets), converts all numbers from 1 up to <limit> into base-2, 
+and ones (onsets), converts all numbers from 1 up to (2^<limit>)-1 into base-2, 
 and returns the corresponding binary lists. The results can be filtered
 to only include the necklaces for which the function <fun> returns T."
-  (loop :for i :from 1 :upto limit
+  (loop :for i :from 1 :upto (1- (expt 2 limit))
 	:for b := (binary-list i)
 	:when (or (not fun-supplied-p) (funcall fun b))
 	  :collect b))
+
+(defun count-necklaces (limit &optional (fun nil fun-supplied-p))
+  (loop :for i :from 1 :upto (1- (expt 2 limit))
+	:for b := (binary-list i)
+	:when (or (not fun-supplied-p) (funcall fun b))
+	  :count b))
 
 (defun binary->interonset (l)
   "Accepts a list <l> of binary digits and returns a list
@@ -607,6 +613,25 @@ of binary digits. For example (1 4 1) -> (1 1 0 0 0 1)."
 						      :initial-element '0))))
 		     l))))
 
+(defun lyndon-words (n a M)
+  (let ((w (make-list (1+ n)))
+	(i 1))
+    (setf (elt w 1) a)
+    (loop
+      :do
+	 (loop :for j :from 1 :to (- n i)
+	       :do (setf (elt w (+ i j)) (elt w j)))
+      :collect (subseq w 1 (1+ i))
+      :do
+	 (setf i n)
+	 (loop :while (and (> i 0)
+			   (eq (elt w i) M))
+	       :do (decf i))
+	 (when (> i 0)
+	   (setf (elt w i) (1+ (elt w i))))
+      :until (or (= i 0)))))
+
+
 ;;; ------------------
 ;;; GEOMETRY OF RHYTHM
 ;;; ------------------
@@ -627,6 +652,12 @@ then the function must be called with :interonset-intervals t."
 				    (mod (+ i (/ w 2))
 					 w))))))))
 
+(defun count-necklaces-with-rhythmic-oddity (length)
+  (count-necklaces (expt 2 length) #'rhythmic-oddity-p))
+
+
+
+
 ;;; --------
 ;;; EVENNESS
 ;;; --------
@@ -643,34 +674,63 @@ then the function must be called with :interonset-intervals t."
 ;;; ---------------
 
 (defun do-it (v &key (min-length 8))
-  "What are all necklaces with lenght higher than <min-length>, at least three onsets, possessing
-the rhythmic oddity property and with an evenness degree higher than 1/3?"
+  "What are all necklaces with lenght higher than <min-length>, less than three attacks with the
+duration of a single pulse, possessing the rhythmic oddity property and with an evenness degree 
+higher than 1/3?"
   (let* ((a (all-necklaces v))
 	 (results (loop :for i :in a
-		     :for s := (binary->interonset i)
-		     :for p := 1 :then (incf p)
-		     :do (when (= (mod p 1000) 0) (format t "-"))
-		     :when (and (>= (length s) min-length)
-				(< (count 1 s) 3)
-				(rhythmic-oddity-p s)
-				(> (evenness s) 1/3))
-		     :collect (mapcar #'(lambda (x) (* (midi-cents 1) x)) s)))
+			:for s := (binary->interonset i)
+			:for p := 1 :then (incf p)
+			:do (when (= (mod p 1000) 0) (format t "-"))
+			:when (and (>= (length s) min-length)
+				   (< (count 1 s) 3)
+				   (rhythmic-oddity-p i)
+				   (> (evenness s) 1/3))
+			  :collect (mapcar #'(lambda (x) (* (midi-cents 1) x)) s)))
 	 (chords (mapcar #'(lambda (l) (necklace-chord (midi-cents 48) l))
 			 results)))
     (loop :for c :in chords
-       :for p := 1 :then (incf p)
-       :do (when (= (mod p 100)
-		    0)
-	     (format t "="))
-       :when (mod12-unique-p c)
-       :collect c)))
+	  :for p := 1 :then (incf p)
+	  :do (when (zerop (mod p 100)) (format t "="))
+	  :when (mod12-unique-p c)
+	    :collect c)))
+
+(defun do-it-lyndon (max-length)
+  "What are all necklaces with lenght higher than <min-length>, at least three onsets, possessing
+the rhythmic oddity property and with an evenness degree higher than 1/3?"
+  (let* ((a (lyndon-words max-length 2 5))
+	 (results (loop :for i :in a
+			:for p := 1 :then (incf p)
+			:do (when (= (mod p 1000) 0) (format t "-"))
+			:when (and
+			       (< (count 1 i) 3)
+			       (rhythmic-oddity-p i :interonset-intervals t)
+			       (> (evenness i) 1/3))
+			  :collect (mapcar #'(lambda (x) (* (midi-cents 1) x)) i))) 
+	 (chords (mapcar #'(lambda (l) (necklace-chord (midi-cents 48) l))
+			 results)))
+    (print (length results))
+    (loop :for c :in chords
+	  :for p := 1 :then (incf p)
+	  :do (when (= (mod p 1000))
+		0)
+	      (format t "=")
+	  :when (mod12-unique-p c)
+	    :collect c)))
+
+(remove-if-not (lambda (x) (let ((l (reduce #'+ x)))
+			     (and (< 19 l 22)
+				  (rhythmic-oddity-p x :interonset-intervals t)
+				  (> (evenness x) 1/3))))
+	       (lyndon-words 7 2 4))
+
 
 (defun necklace-chord (root inter-onsets)
   "Builds a pitch collection starting on <root> and following the <inter-onsets> intervals."
   (loop :for n :in inter-onsets
-     :for r := (+ root n) :then (+ r n)
-     :collect r :into results
-     :finally (return (push root results))))
+	:for r := (+ root n) :then (+ r n)
+	:collect r :into results
+	:finally (return (push root results))))
 
 ;;(all-necklaces 65536 #'(and (alexandria:rcurry #'rhythmic-oddity-p :binary-list t) t))
 ;;(do-it (expt 2 20) :min-length 9)
