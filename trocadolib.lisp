@@ -576,7 +576,7 @@ in the form ((<score1> ((chord 1a) (chord 1b) ... (chord 1n)))
 ;;; NECKLACES
 ;;; ---------
 
-(defun all-necklaces (limit &key &rest filters)
+(defun all-necklaces (limit &rest filters)
   "Because a necklace can be expressed as a series of zeros (rests) 
 and ones (onsets), converts all numbers from 1 up to (2^<limit>)-1 into base-2, 
 and returns the corresponding binary lists. The results can be filtered
@@ -590,7 +590,7 @@ For example: (all-necklaces 6 #'rhythmic-oddity-p (lambda (x) (< (count '1 (bina
 	  :collect b))
 
 (defun count-necklaces (limit &rest filters)
-  "Same as all-necklaces, but just more efficiently counts how many solutions there are, without returning them all."
+  "Same as all-necklaces, but more efficiently just counts how many solutions there are, without returning them all."
   (loop :for i :from 1 :upto (1- (expt 2 limit))
 	:for b := (binary-list i)
 	:when (or (not filters)
@@ -688,34 +688,34 @@ then the function must be called with :interonset-intervals t."
 ;;; SPECIFIC SEARCH
 ;;; ---------------
 
-(defun necklace-specific-search (v &key (min-length 8))
-  "What are all necklaces with lenght higher than <min-length>, less than three attacks with the
-duration of a single pulse, possessing the rhythmic oddity property and with an evenness degree 
-higher than 1/3?"
-  (let* ((a (all-necklaces v))
-	 (results (loop :for i :in a
-			:for s := (binary->interonset i)
-			:for p := 1 :then (incf p)
-			:do (when (= (mod p 1000) 0) (format t "-"))
-			:when (and (>= (length s) min-length)
-				   (< (count 1 s) 3)
-				   (rhythmic-oddity-p i)
-				   (> (evenness s) 1/3))
-			  :collect (mapcar #'(lambda (x) (* (midi-cents 1) x)) s)))
-	 (chords (mapcar #'(lambda (l) (necklace-chord (midi-cents 48) l))
-			 results)))
-    (loop :for c :in chords
-	  :for p := 1 :then (incf p)
-	  :do (when (zerop (mod p 100)) (format t "="))
-	  :when (mod12-unique-p c)
-	    :collect c)))
+;; (defun necklace-specific-search (v &key (min-length 8))
+;;   "What are all necklaces with lenght higher than <min-length>, less than three attacks with the
+;; duration of a single pulse, possessing the rhythmic oddity property and with an evenness degree 
+;; higher than 1/3?"
+;;   (let* ((a (all-necklaces v))
+;; 	 (results (loop :for i :in a
+;; 			:for s := (binary->interonset i)
+;; 			:for p := 1 :then (incf p)
+;; 			:do (when (= (mod p 1000) 0) (format t "-"))
+;; 			:when (and (>= (length s) min-length)
+;; 				   (< (count 1 s) 3)
+;; 				   (rhythmic-oddity-p i)
+;; 				   (> (evenness s) 1/3))
+;; 			  :collect (mapcar #'(lambda (x) (* (midi-cents 1) x)) s)))
+;; 	 (chords (mapcar #'(lambda (l) (necklace-chord (midi-cents 48) l))
+;; 			 results)))
+;;     (loop :for c :in chords
+;; 	  :for p := 1 :then (incf p)
+;; 	  :do (when (zerop (mod p 100)) (format t "="))
+;; 	  :when (mod12-unique-p c)
+;; 	    :collect c)))
 
 (defun necklace-specific-search (min-length max-length consecutive min-evenness)
   (all-necklaces max-length
 		 #'rhythmic-oddity-p
-		 (lambda (x) (> (length x) min-length))
 		 (lambda (x) (let ((ioi (binary->interonset x)))
-			       (and (< (count 1 ioi) consecutive)
+			       (and (>= (length ioi) min-length)
+				    (< (count 1 ioi) consecutive)
 				    (> (evenness x) min-evenness)
 				    (mod12-unique-p (i->p ioi 0)))))))
 
