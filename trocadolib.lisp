@@ -97,6 +97,10 @@ run in that environment."
   "Converts a list of pitches into a list of sequential intervals."
   (loop :for (p q) :on pitch-list :while q :collect (- q p)))
 
+(defun i->p (interval-list start)
+  "Converts a list of intervals into a list of pitches."
+  (loop :for i :in (push start interval-list) :sum i :into z :collect z))
+
 (defun freq-to-midi (freq)
   "Converts a pitch with frequency <freq> in Hz to midi cents."
   (* (midi-cents 1) (+ 69 (* 12 (log (/ freq 440) 2)))))
@@ -572,35 +576,41 @@ in the form ((<score1> ((chord 1a) (chord 1b) ... (chord 1n)))
 ;;; NECKLACES
 ;;; ---------
 
-(defun all-necklaces (limit &optional (fun nil fun-supplied-p))
+(defun all-necklaces (limit &key &rest filters)
   "Because a necklace can be expressed as a series of zeros (rests) 
 and ones (onsets), converts all numbers from 1 up to (2^<limit>)-1 into base-2, 
 and returns the corresponding binary lists. The results can be filtered
-to only include the necklaces for which the function <fun> returns T."
+to only include the necklaces for which all the functions <filters> return T.
+For example: (all-necklaces 6 #'rhythmic-oddity-p (lambda (x) (< (count '1 (binary->interonset x)) 2))) -> all necklaces with total length up to 6, with the rhythmic oddity property and no more than two consecutive attacks."
   (loop :for i :from 1 :upto (1- (expt 2 limit))
 	:for b := (binary-list i)
-	:when (or (not fun-supplied-p) (funcall fun b))
+	:when (or (not filters)
+		  (loop :for fun :in filters
+			:always (funcall fun b)))
 	  :collect b))
 
-(defun count-necklaces (limit &optional (fun nil fun-supplied-p))
+(defun count-necklaces (limit &rest filters)
+  "Same as all-necklaces, but just more efficiently counts how many solutions there are, without returning them all."
   (loop :for i :from 1 :upto (1- (expt 2 limit))
 	:for b := (binary-list i)
-	:when (or (not fun-supplied-p) (funcall fun b))
+	:when (or (not filters)
+		  (loop :for fun :in filters
+			:always (funcall fun b)))
 	  :count b))
 
 (defun binary->interonset (l)
-  "Accepts a list <l> of binary digits and returns a list
+    "Accepts a list <l> of binary digits and returns a list
 of inter-onset intervals. For example (1 1 0 0 0 1) -> (1 4 1)."
-  (when (member 1 l)
-    (let ((normal-l
-	    (loop :for ll := l :then (rotate ll 1)
-		  :while (zerop (first ll))
-		  :finally (return ll))))
-      (loop :for o :in normal-l
-	    :for c := 0 :then (incf c)
-	    :when (and (plusp o) (plusp c))
-	      :collect c :into r :and :do (setf c 0)
-	    :finally (return (append r (list (+ c 1))))))))
+    (when (member 1 l)
+      (let ((normal-l
+	      (loop :for ll := l :then (rotate ll 1)
+		    :while (zerop (first ll))
+		    :finally (return ll))))
+	(loop :for o :in normal-l
+	      :for c := 0 :then (incf c)
+	      :when (and (plusp o) (plusp c))
+		:collect c :into r :and :do (setf c 0)
+	      :finally (return (append r (list (+ c 1))))))))
 
 (defun interonset->binary (l)
   "Accepts a list <l> of inter-onset intervals and returns a list
@@ -614,6 +624,7 @@ of binary digits. For example (1 4 1) -> (1 1 0 0 0 1)."
 		     l))))
 
 (defun lyndon-words (n a M)
+  "Generates all Lyndon words of length <= <n> over an alphabet <a>..<M>. The algorithm is an adaptation of the one by Jean-Paul Duval, Génération d'une section des classes de conjugaison et arbre des mots de Lyndon de longueur bornée, in Theoretical Computer Science, 60, 1988, pp. 255-283."
   (let ((w (make-list (1+ n)))
 	(i 1))
     (setf (elt w 1) a)
@@ -631,6 +642,10 @@ of binary digits. For example (1 4 1) -> (1 1 0 0 0 1)."
 	   (setf (elt w i) (1+ (elt w i))))
       :until (or (= i 0)))))
 
+(defun lyndon-words-with-duration (n a M duration)
+  "Generates all Lyndon words of length <= <n> over an alphabet <a>..<M>, where <a> and <M> are numbers and <a> < <M>, and where the sum of all numbers is <= <duration>."
+  (remove-if-not (lambda (x) (<= (reduce #'+ x) duration))
+		 (lyndon-words n a M)))
 
 ;;; ------------------
 ;;; GEOMETRY OF RHYTHM
@@ -653,7 +668,7 @@ then the function must be called with :interonset-intervals t."
 					 w))))))))
 
 (defun count-necklaces-with-rhythmic-oddity (length)
-  (count-necklaces (expt 2 length) #'rhythmic-oddity-p))
+  (count-necklaces (expt 2 length) :filter #'rhythmic-oddity-p))
 
 
 
@@ -673,7 +688,7 @@ then the function must be called with :interonset-intervals t."
 ;;; SPECIFIC SEARCH
 ;;; ---------------
 
-(defun do-it (v &key (min-length 8))
+(defun necklace-specific-search (v &key (min-length 8))
   "What are all necklaces with lenght higher than <min-length>, less than three attacks with the
 duration of a single pulse, possessing the rhythmic oddity property and with an evenness degree 
 higher than 1/3?"
@@ -694,6 +709,17 @@ higher than 1/3?"
 	  :do (when (zerop (mod p 100)) (format t "="))
 	  :when (mod12-unique-p c)
 	    :collect c)))
+
+(defun necklace-specific-search (min-length max-length consecutive min-evenness)
+  (all-necklaces max-length
+		 #'rhythmic-oddity-p
+		 (lambda (x) (> (length x) min-length))
+		 (lambda (x) (let ((ioi (binary->interonset x)))
+			       (and (< (count 1 ioi) consecutive)
+				    (> (evenness x) min-evenness)
+				    (mod12-unique-p (i->p ioi 0)))))))
+
+
 
 (defun do-it-lyndon (max-length)
   "What are all necklaces with lenght higher than <min-length>, at least three onsets, possessing
@@ -723,7 +749,6 @@ the rhythmic oddity property and with an evenness degree higher than 1/3?"
 				  (rhythmic-oddity-p x :interonset-intervals t)
 				  (> (evenness x) 1/3))))
 	       (lyndon-words 7 2 4))
-
 
 (defun necklace-chord (root inter-onsets)
   "Builds a pitch collection starting on <root> and following the <inter-onsets> intervals."
