@@ -646,6 +646,13 @@ of binary digits. For example (1 4 1) -> (1 1 0 0 0 1)."
   (remove-if-not (lambda (x) (<= (reduce #'+ x) duration))
 		 (lyndon-words n a M)))
 
+(defun necklace-chord (root inter-onsets)
+  "Builds a pitch collection starting on <root> and following the <inter-onsets> intervals."
+  (loop :for n :in inter-onsets)
+  :for r := (+ root n) :then (+ r n)
+  :collect r :into results
+  :finally (return (push root results)))
+
 ;;; ------------------
 ;;; GEOMETRY OF RHYTHM
 ;;; ------------------
@@ -670,8 +677,6 @@ then the function must be called with :interonset-intervals t."
   (count-necklaces (expt 2 length) :filter #'rhythmic-oddity-p))
 
 
-
-
 ;;; --------
 ;;; EVENNESS
 ;;; --------
@@ -684,54 +689,43 @@ then the function must be called with :interonset-intervals t."
 	 (m (apply #'max ioi)))
     (/ 1 (1+ (- m h)))))
 
-(defun weight (ioi)
+(defun evenness-weight (ioi)
   "With the onsets distributed around an unit circle, returns the sum of the chord lengths between
 every pair of onsets. See Steven Block and Jack Douthett, 'Vector Products and Intervalic Weighting', in Journal of Music Theory, vol. 38, no. 1, pp. 21-41, 1994."
   (let* ((n (reduce #'+ ioi))
 	 (weighting-vector (loop :for i :from 1 :upto (/ n 2)
-			      :collect (* 2 (sin (/ (* i pi) n)))))
+				 :collect (* 2 (sin (/ (* i pi) n)))))
 	 (interval-vector (mapcar (lambda (x) (let* ((m (mod x n)))
 						(if (<= m (floor (/ n 2)))
 						    m
 						    (- n m))))
 				  (all-intervals (loop :for i :in (append '(0) (butlast ioi))
-						    :sum i :into z
-						    :collect z)))))
+						       :sum i :into z
+						       :collect z)))))
     (reduce #'+ (mapcar (lambda (x) (elt weighting-vector (1- x))) interval-vector))))
 
-(defun weight-index (ioi)
+(defun evenness-weight-index (ioi)
   "Returns the proportion between the weight of cycle <ioi>, expressed as a list of inter-onset
 intervals, and the weight of a maximally even cycle with the same cardinality."
-  (/ (weight ioi)
-     (weight (make-list (length ioi) :initial-element 1))))
+  (/ (evenness-weight ioi)
+     (evenness-weight (make-list (length ioi) :initial-element 1))))
+
 
 ;;; ---------------
 ;;; SPECIFIC SEARCH
 ;;; ---------------
 
-;; (defun necklace-specific-search (v &key (min-length 8))
-;;   "What are all necklaces with lenght higher than <min-length>, less than three attacks with the
-;; duration of a single pulse, possessing the rhythmic oddity property and with an evenness degree 
-;; higher than 1/3?"
-;;   (let* ((a (all-necklaces v))
-;; 	 (results (loop :for i :in a
-;; 			:for s := (binary->interonset i)
-;; 			:for p := 1 :then (incf p)
-;; 			:do (when (= (mod p 1000) 0) (format t "-"))
-;; 			:when (and (>= (length s) min-length)
-;; 				   (< (count 1 s) 3)
-;; 				   (rhythmic-oddityc-p i)
-;; 				   (> (evenness s) 1/3))
-;; 			  :collect (mapcar #'(lambda (x) (* (midi-cents 1) x)) s)))
-;; 	 (chords (mapcar #'(lambda (l) (necklace-chord (midi-cents 48) l))
-;; 			 results)))
-;;     (loop :for c :in chords
-;; 	  :for p := 1 :then (incf p)
-;; 	  :do (when (zerop (mod p 100)) (format t "="))
-;; 	  :when (mod12-unique-p c)
-;; 	    :collect c)))
-
 (defun necklace-specific-search (min-length max-length consecutive min-evenness)
+  (all-necklaces max-length
+		 #'rhythmic-oddity-p
+		 (lambda (x) 
+		   (let ((ioi (binary->interonset x)))
+		     (and (>= (length ioi) min-length)
+			  (< (count 1 ioi) consecutive)
+			  (> (evenness-weight-index ioi) min-evenness)
+			  (mod12-unique-p (i->p ioi 0)))))))
+  
+(defun necklace-specific-search-with-lyndon (min-length max-length consecutive min-evenness)
   (remove-if-not (and #'rhythmic-oddity-p
 		      (lambda (x) (let ((ioi (binary->interonset x)))
 				    (and (>= (length ioi) min-length)
@@ -740,47 +734,6 @@ intervals, and the weight of a maximally even cycle with the same cardinality."
 					 (mod12-unique-p (i->p ioi 0))))))
 		 (lyndon-words max-length 1 4)))
 
-
-
-(defun do-it-lyndon (max-length)
-  "What are all necklaces with lenght higher than <min-length>, at least three onsets, possessing
-the rhythmic oddity property and with an evenness degree higher than 1/3?"
-  (let* ((a (lyndon-words max-length 2 5))
-	 (results (loop :for i :in a
-			:for p := 1 :then (incf p)
-			:do (when (= (mod p 1000) 0) (format t "-"))
-			:when (and
-			       (< (count 1 i) 3)
-			       (rhythmic-oddity-p i :interonset-intervals t)
-			       (> (evenness i) 1/3))
-			  :collect (mapcar #'(lambda (x) (* (midi-cents 1) x)) i))) 
-	 (chords (mapcar #'(lambda (l) (necklace-chord (midi-cents 48) l))
-			 results)))
-    (print (length results))
-    (loop :for c :in chords
-	  :for p := 1 :then (incf p)
-	  :do (when (= (mod p 1000))
-		0)
-	      (format t "=")
-	  :when (mod12-unique-p c)
-	    :collect c)))
-
-(remove-if-not (lambda (x) (let ((l (reduce #'+ x)))
-			     (and (< 19 l 22)
-				  (rhythmic-oddity-p x :interonset-intervals t)
-				  (> (evenness x) 1/3))))
-	       (lyndon-words 7 2 4))
-
-(defun necklace-chord (root inter-onsets)
-  "Builds a pitch collection starting on <root> and following the <inter-onsets> intervals."
-  (loop :for n :in inter-onsets
-	:for r := (+ root n) :then (+ r n)
-	:collect r :into results
-	:finally (return (push root results))))
-
-;;(all-necklaces 65536 #'(and (alexandria:rcurry #'rhythmic-oddity-p :binary-list t) t))
-;;(do-it (expt 2 20) :min-length 9)
-;;(mapcar #'p->i (do-it (expt 2 20) :min-length 9))
 
 ;;; -----------------
 ;;; TRICHORD ANALISYS
@@ -792,7 +745,7 @@ the rhythmic oddity property and with an evenness degree higher than 1/3?"
 
 (defun first-trichord (l)
   (loop :for a :in l
-     :for c := 1 :then (if (not (member a r)) (incf c) c)
-     :collect a :into r
-     :until (= c 3)
-     :finally (return r)))
+	:for c := 1 :then (if (not (member a r)) (incf c) c)
+	:collect a :into r
+	:until (= c 3)
+	:finally (return r)))
