@@ -34,7 +34,6 @@
         ((= (first a) (first b)) nil)
         (t (> (first a) (first b)))))
 
-
 (defun scale-value (value orig-min orig-max dest-min dest-max)
   "Scales <value> from an original to a destination range. If <value>, <orig-min> and <orig-max> are all the same, returns the lowest value of the destination bracket."
   (when (and (>= value orig-min)
@@ -611,7 +610,7 @@ of inter-onset intervals. For example (1 1 0 0 0 1) -> (1 4 1)."
 	      :when (and (plusp o) (plusp c))
 		:collect c :into r :and :do (setf c 0)
 	      :finally (return (append r (list (+ c 1))))))))
-
+   
 (defun interonset->binary (l)
   "Accepts a list <l> of inter-onset intervals and returns a list
 of binary digits. For example (1 4 1) -> (1 1 0 0 0 1)."
@@ -678,11 +677,33 @@ then the function must be called with :interonset-intervals t."
 ;;; --------
 
 (defun evenness (ioi)
+  "Returns an index of how well distributed are the onsets."
   (let* ((n (reduce #'+ ioi))
 	 (k (length ioi))
 	 (h (/ n k))
 	 (m (apply #'max ioi)))
     (/ 1 (1+ (- m h)))))
+
+(defun weight (ioi)
+  "With the onsets distributed around an unit circle, returns the sum of the chord lengths between
+every pair of onsets. See Steven Block and Jack Douthett, 'Vector Products and Intervalic Weighting', in Journal of Music Theory, vol. 38, no. 1, pp. 21-41, 1994."
+  (let* ((n (reduce #'+ ioi))
+	 (weighting-vector (loop :for i :from 1 :upto (/ n 2)
+			      :collect (* 2 (sin (/ (* i pi) n)))))
+	 (interval-vector (mapcar (lambda (x) (let* ((m (mod x n)))
+						(if (<= m (floor (/ n 2)))
+						    m
+						    (- n m))))
+				  (all-intervals (loop :for i :in (append '(0) (butlast ioi))
+						    :sum i :into z
+						    :collect z)))))
+    (reduce #'+ (mapcar (lambda (x) (elt weighting-vector (1- x))) interval-vector))))
+
+(defun weight-index (ioi)
+  "Returns the proportion between the weight of cycle <ioi>, expressed as a list of inter-onset
+intervals, and the weight of a maximally even cycle with the same cardinality."
+  (/ (weight ioi)
+     (weight (make-list (length ioi) :initial-element 1))))
 
 ;;; ---------------
 ;;; SPECIFIC SEARCH
