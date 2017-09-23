@@ -699,7 +699,7 @@ then the function must be called with :interonset-intervals t."
 ;; 			:do (when (= (mod p 1000) 0) (format t "-"))
 ;; 			:when (and (>= (length s) min-length)
 ;; 				   (< (count 1 s) 3)
-;; 				   (rhythmic-oddity-p i)
+;; 				   (rhythmic-oddityc-p i)
 ;; 				   (> (evenness s) 1/3))
 ;; 			  :collect (mapcar #'(lambda (x) (* (midi-cents 1) x)) s)))
 ;; 	 (chords (mapcar #'(lambda (l) (necklace-chord (midi-cents 48) l))
@@ -711,13 +711,13 @@ then the function must be called with :interonset-intervals t."
 ;; 	    :collect c)))
 
 (defun necklace-specific-search (min-length max-length consecutive min-evenness)
-  (all-necklaces max-length
-		 #'rhythmic-oddity-p
-		 (lambda (x) (let ((ioi (binary->interonset x)))
-			       (and (>= (length ioi) min-length)
-				    (< (count 1 ioi) consecutive)
-				    (> (evenness x) min-evenness)
-				    (mod12-unique-p (i->p ioi 0)))))))
+  (remove-if-not (and #'rhythmic-oddity-p
+		      (lambda (x) (let ((ioi (binary->interonset x)))
+				    (and (>= (length ioi) min-length)
+					 (< (count 1 ioi) consecutive)
+					 (> (evenness x) min-evenness)
+					 (mod12-unique-p (i->p ioi 0))))))
+		 (lyndon-words max-length 1 4)))
 
 
 
