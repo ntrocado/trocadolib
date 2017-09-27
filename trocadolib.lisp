@@ -173,10 +173,13 @@ between <multiplier-min> and <multiplier-max>, progressing by <multiplier-step>.
 The :rounded keyword returns results in 12TET when set to T, and microtonal when
 set to NIL."
   (loop :for m :from multiplier-min :upto multiplier-max :by multiplier-step 
-     :collect (if rounded
-		  (mapcar (lambda (x) (mapcar #'round x))
-			  (many-rotations chord interval iterations m))
-		  (many-rotations chord interval iterations m))))
+	:collect (if rounded
+		     (mapcar (lambda (x)
+			       (mapcar (lambda (y)
+					 (* (midi-cents 1) (round (/ y (midi-cents 1)))))
+				       x))
+			     (many-rotations chord interval iterations m))
+		     (many-rotations chord interval iterations m))))
 
 (defun rotation-matrix (chord &key (interval (midi-cents 12)) (rem-dups t))
   "Returns a matrix of rotations, where for each note in <chord> there's a set of
@@ -648,10 +651,10 @@ of binary digits. For example (1 4 1) -> (1 1 0 0 0 1)."
 
 (defun necklace-chord (root inter-onsets)
   "Builds a pitch collection starting on <root> and following the <inter-onsets> intervals."
-  (loop :for n :in inter-onsets)
-  :for r := (+ root n) :then (+ r n)
-  :collect r :into results
-  :finally (return (push root results)))
+  (loop :for n :in inter-onsets
+	:for r := (+ root n) :then (+ r n)
+	:collect r :into results
+	:finally (return (push root results))))
 
 ;;; ------------------
 ;;; GEOMETRY OF RHYTHM
@@ -715,24 +718,25 @@ intervals, and the weight of a maximally even cycle with the same cardinality."
 ;;; SPECIFIC SEARCH
 ;;; ---------------
 
-(defun necklace-specific-search (min-length max-length consecutive min-evenness)
+(defun necklace-specific-search (min-length max-length singles min-evenness mod12)
   (all-necklaces max-length
-		 #'rhythmic-oddity-p
-		 (lambda (x) 
-		   (let ((ioi (binary->interonset x)))
-		     (and (>= (length ioi) min-length)
-			  (< (count 1 ioi) consecutive)
-			  (> (evenness-weight-index ioi) min-evenness)
-			  (mod12-unique-p (i->p ioi 0)))))))
+     #'rhythmic-oddity-p
+     (lambda (x) 
+       (let ((ioi (binary->interonset x)))
+         (and (>= (length ioi) min-length))
+	 (< (count 1 ioi) singles)
+	 (> (evenness-weight-index ioi) min-evenness)
+	 (or (not mod12) (mod12-unique-p (i->p ioi 0)))))))
   
-(defun necklace-specific-search-with-lyndon (min-length max-length consecutive min-evenness)
-  (remove-if-not (and #'rhythmic-oddity-p
-		      (lambda (x) (let ((ioi (binary->interonset x)))
-				    (and (>= (length ioi) min-length)
-					 (< (count 1 ioi) consecutive)
-					 (> (evenness x) min-evenness)
-					 (mod12-unique-p (i->p ioi 0))))))
-		 (lyndon-words max-length 1 4)))
+(defun necklace-specific-search-with-lyndon (max-length min-attacks max-attacks
+					     min-ioi max-ioi singles
+					     min-evenness mod12)
+  (remove-if-not (lambda (ioi) (and (>= (length ioi) min-attacks)
+				    (< (count 1 ioi) singles)
+				    (> (evenness ioi) min-evenness)
+				    (rhythmic-oddity-p ioi :interonset-intervals t)
+				    (or (not mod12) (mod12-unique-p (i->p ioi 0)))))
+     (lyndon-words-with-duration max-attacks 1 5 max-length)))
 
 
 ;;; -----------------
