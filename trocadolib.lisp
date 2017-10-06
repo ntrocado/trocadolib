@@ -158,12 +158,12 @@ up by an <interval> until it's the highest."
 in each one of the <iterations> the note that goes to the top of the chord 
 is transposed by a increasing amount, multiplied by a <multiplier>."
   (loop :for i :from 0 :below iterations
-     :for a := chord :then
-     (let ((rotated-chord (sort (copy-seq (one-rotation a interval)) #'<)))
-       (append (list (+ (car (last rotated-chord))
-			(* i (midi-cents multiplier))))
-	       (butlast rotated-chord)))
-     :collect a))
+	:for a := chord :then
+			(let ((rotated-chord (sort (copy-seq (one-rotation a interval)) #'<)))
+			  (append (list (+ (car (last rotated-chord))
+					   (* i (midi-cents multiplier))))
+				  (butlast rotated-chord)))
+	:collect a))
 
 (defun many-many-rotations (chord interval iterations
 			    multiplier-min multiplier-max multiplier-step
@@ -277,12 +277,12 @@ a semitone between the first and second notes, two semitones between the
 	   :collect (range chord bottom))
 	(range chord-or-sequence bottom))))
 
-(defun closed-voicing (chord)
-  "Puts <chord> in closed voicing."
+(defun closed-position (chord)
+  "Puts <chord> in closed position."
   (let* ((rotations (all-rotations chord))
 	 (range (loop :for ch :in rotations
-		   :collect (cons (- (apply #'max ch) (apply #'min ch))
-				  ch))))
+		      :collect (cons (- (apply #'max ch) (apply #'min ch))
+				     ch))))
     (cdr (first (sort (copy-seq range) #'list<))))) 
 
 ;;; --------
@@ -312,16 +312,6 @@ a semitone between the first and second notes, two semitones between the
   (let ((mod12-sorted (loop :for chord :in (mapcar #'mod12 chord-list)
 			 :collect (copy-seq (sort chord #'<)))))
     (length (remove-duplicate-sublists mod12-sorted))))
-
-
-;; (defun find-best-expansion (chord direction iterations)
-;;   ;; Finds the multipler for function "many-expansions" that generates the least number of chords with repeated pitch classes.
-;;   ;; Returns a dotted pair (best multiplier . number of chords with repeated pitch classes)
-;;   (let* ((results (loop :for m :from 1 :upto 11
-;; 		     :collect (count-non-uniques (many-expansions chord m direction iterations))))
-;; 	 (best (+ 1 (position (apply #'min results) results))))
-;;     (print results)
-;;     (cons best (elt results (- best 1)))))
 
 (defun find-best-expansion (chord direction iterations &optional (decimals 0))
   "Finds the multipler for function <many-expansions> that generates the largest number of different mod12 chords. Returns a dotted pair (best multiplier . number of different chords)."
@@ -438,37 +428,6 @@ in the form ((<score1> ((chord 1a) (chord 1b) ... (chord 1n)))
 			     chord-sequence))
 			  list-of-chord-sequences))
 	#'list>))
-
-  ;; (defun sort-sequences (list-of-chord-sequences func)
-;;   ;; Sorts <list-of-chord-sequences> acording to the scoring function <func>.
-;;   (loop :for sequence :in list-of-chord-sequences
-;;      :collect (cons (loop :for ch :in sequence
-;; 		       :summing (funcall func ch))
-;; 		    sequence)
-;;      :into results
-;;      :finally (return (sort (copy-seq results) #'list<))))
-
-;; (defun sort-sequences (list-of-chord-sequences &rest weight-functions)
-;;   ;; Sorts <list-of-chord-sequences> acording to the scoring function <func>.
-;;   (loop :for sequence :in list-of-chord-sequences
-;;      :collect (cons (loop :for ch :in sequence))
-;;      :summing (funcall func ch)
-;;      sequence
-;;      :into results
-;;      :finally (return (sort (copy-seq results) #'list<))))
-
-;; (defun find-best-sequence (list-of-chord-sequences)
-;;   (loop :for sequence :in list-of-chord-sequences
-;;      :collect (cons (+
-;; 		     (* 2 (count-unique-chords sequence)) 
-;; 		     (* 5 (/ 1 (+ (count-non-uniques sequence) 1)))
-;; 		     (/ (loop :for ch :in sequence
-;; 			   :summing (chord-score ch))
-;; 			100))
-;; 		    sequence)
-;;      :into results
-;;      :finally (return (sort (copy-seq results) #'list<))))
-
 
 ;;; --------------
 ;;; RHYTHM GRAVITY
@@ -710,46 +669,32 @@ every pair of onsets. See Steven Block and Jack Douthett, 'Vector Products and I
 (defun evenness-weight-index (ioi)
   "Returns the proportion between the weight of cycle <ioi>, expressed as a list of inter-onset
 intervals, and the weight of a maximally even cycle with the same cardinality."
-  (/ (evenness-weight ioi)
-     (evenness-weight (make-list (length ioi) :initial-element 1))))
+  (if (= (length ioi) 1)
+      1
+      (/ (evenness-weight ioi)
+	 (evenness-weight (make-list (length ioi) :initial-element 1)))))
 
 
 ;;; ---------------
 ;;; SPECIFIC SEARCH
 ;;; ---------------
 
-(defun necklace-specific-search (min-length max-length singles min-evenness mod12)
+(defun necklace-specific-search (min-attacks max-length singles min-evenness mod12)
   (all-necklaces max-length
      #'rhythmic-oddity-p
      (lambda (x) 
        (let ((ioi (binary->interonset x)))
-         (and (>= (length ioi) min-length))
-	 (< (count 1 ioi) singles)
-	 (> (evenness-weight-index ioi) min-evenness)
-	 (or (not mod12) (mod12-unique-p (i->p ioi 0)))))))
+         (and (>= (length ioi) min-attacks)
+	      (<= (count 1 ioi :test #'equalp) singles)
+	      (> (evenness-weight-index ioi) min-evenness)
+	      (or (not mod12) (mod12-unique-p (i->p ioi 0))))))))
   
 (defun necklace-specific-search-with-lyndon (max-length min-attacks max-attacks
 					     min-ioi max-ioi singles
 					     min-evenness mod12)
   (remove-if-not (lambda (ioi) (and (>= (length ioi) min-attacks)
-				    (< (count 1 ioi) singles)
+				    (<= (count 1 ioi) singles)
 				    (> (evenness ioi) min-evenness)
 				    (rhythmic-oddity-p ioi :interonset-intervals t)
 				    (or (not mod12) (mod12-unique-p (i->p ioi 0)))))
-     (lyndon-words-with-duration max-attacks 1 5 max-length)))
-
-
-;;; -----------------
-;;; TRICHORD ANALISYS
-;;; -----------------
-
-;;; TODO
-
-;;;(defun prime-form (l)
-
-(defun first-trichord (l)
-  (loop :for a :in l
-	:for c := 1 :then (if (not (member a r)) (incf c) c)
-	:collect a :into r
-	:until (= c 3)
-	:finally (return r)))
+		 (lyndon-words-with-duration max-attacks min-ioi max-ioi max-length)))
