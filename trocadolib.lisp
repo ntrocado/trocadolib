@@ -23,15 +23,15 @@
   first element of list <b>"
   (cond ((null a) (not (null b)))
         ((null b) nil)
-        ((= (first a) (first b)) nil)
-        (t (< (first a) (first b))) ))
+        ((= (first a) (first b)) (list< (rest a) (rest b)))
+        (t (< (first a) (first b)))))
 
 (defun list> (a b)
   "Returns true when the first element of list <a> is higher than the
   first element of list <b>"
   (cond ((null a) (not (null b)))
         ((null b) nil)
-        ((= (first a) (first b)) nil)
+        ((= (first a) (first b)) (list> (rest a) (rest b)))
         (t (> (first a) (first b)))))
 
 (defun scale-value (value orig-min orig-max dest-min dest-max)
