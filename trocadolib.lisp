@@ -111,20 +111,43 @@ run in that environment."
 (defun durations-to-offsets (duration-list)
   "Given a list of durations, returns a list of the corresponding offsets in ms."
   (loop :for d :in duration-list
-     :sum d into total
-     :collect total into results
-     :finally (return (butlast (push 0 results)))))
+	:sum d into total
+	:collect total into results
+	:finally (return (butlast (push 0 results)))))
 
 (defun offsets-to-durations (offset-list)
   "Given a list of offsets, returns a list of the corresponding durations in ms."
   (loop :for (o1 o2) :on offset-list :while o2
-     :collect (- o2 o1)))
+	:collect (- o2 o1)))
+
+(defun midi->string (note)
+  (let ((letter (case (mod (floor note) 12)
+		  (0 "C")
+		  (1 "C#")
+		  (2 "D")
+		  (3 "D#")
+		  (4 "E")
+		  (5 "F")
+		  (6 "F#")
+		  (7 "G")
+		  (8 "G#")
+		  (9 "A")
+		  (10 "A#")
+		  (11 "B")))
+	(octave (1- (floor (/ note 12))))
+	(quarter-tone-up (when (plusp (mod note 1)) "↑")))
+    (format nil "~{~a~}" (list letter (if quarter-tone-up quarter-tone-up "") octave))))
+
+(defun midi-seq->string (seq)
+  (cond ((sublistp seq) (mapcar (lambda (y) (mapcar (lambda (x) (midi->string x)) y)) seq))
+	((listp seq) (mapcar (lambda (x) (midi->string x)) seq))
+	(t (error "<seq> must be a single list or a list of lists."))))
 
 (defun harmonic-series (fundamental n-partials)
   "Returns <n-partials> of the harmonic series starting on <fundamental> note in midi cents."
   (let ((fundamental-freq (midi-to-freq fundamental)))
     (loop :for p :from 1 :upto n-partials
-       :collect (freq-to-midi (* fundamental-freq p)))))
+	  :collect (freq-to-midi (* fundamental-freq p)))))
 
 ;;; ---------------
 ;;; TRANSFORMATIONS
@@ -585,7 +608,7 @@ of binary digits. For example (1 4 1) -> (1 1 0 0 0 1)."
 		     l))))
 
 (defun lyndon-words (n a M)
-  "Generates all Lyndon words of length <= <n> over an alphabet <a>..<M>. The algorithm is an adaptation of the one by Jean-Paul Duval, Génération d'une section des classes de conjugaison et arbre des mots de Lyndon de longueur bornée, in Theoretical Computer Science, 60, 1988, pp. 255-283."
+  "Generates all Lyndon words of length <= <n> over an alphabet <a>..<M>. The algorithm is an adaptation of the one by Jean-Paul Duval, GÃ©nÃ©ration d'une section des classes de conjugaison et arbre des mots de Lyndon de longueur bornÃ©e, in Theoretical Computer Science, 60, 1988, pp. 255-283."
   (let ((w (make-list (1+ n)))
 	(i 1))
     (setf (elt w 1) a)
@@ -698,3 +721,4 @@ intervals, and the weight of a maximally even cycle with the same cardinality."
 				    (rhythmic-oddity-p ioi :interonset-intervals t)
 				    (or (not mod12) (mod12-unique-p (i->p ioi 0)))))
 		 (lyndon-words-with-duration max-attacks min-ioi max-ioi max-length)))
+
