@@ -199,7 +199,7 @@ set to NIL."
 	:collect (if rounded
 		     (mapcar (lambda (x)
 			       (mapcar (lambda (y)
-					 (* (midi-cents 1) (round (/ y (midi-cents 1)))))
+					 (* (midi-cents 1) (round (/ y (midi-cents 1 ())))))
 				       x))
 			     (many-rotations chord interval iterations m))
 		     (many-rotations chord interval iterations m))))
@@ -337,16 +337,26 @@ a semitone between the first and second notes, two semitones between the
     (length (remove-duplicate-sublists mod12-sorted))))
 
 (defun find-best-expansion (chord direction iterations &optional (decimals 0))
-  "Finds the multipler for function <many-expansions> that generates the largest number of different mod12 chords. Returns a dotted pair (best multiplier . number of different chords)."
+  "Finds the multipler for function <many-expansions> that generates the largest number of different
+mod12 chords. Returns (1) the best multiplier, (2) the number of different chords for that 
+multiplier, and (3) a list of the number of different chords for each of the multipliers."
   (let* ((results (loop :for m :from 1 :upto 11 :by (/ 1
 						       (expt 10 decimals))
-		     :collect (count-unique-chords (mapcar (lambda (x) (mapcar #'round x))
-							   (many-expansions chord
-									    m
-									    direction
-									    iterations)))))
-	 (best (+ 1 (position (apply #'max results) results)))) 
-    (values best (elt results (- best 1)) results)))
+			:collect (count-unique-chords (mapcar (lambda (y)
+								(mapcar (lambda (x) (* (midi-cents 1)
+										       (round (/ x 100))))
+									y))
+							      (many-expansions chord
+									       m
+									       direction
+									       iterations)))))
+	 (different-chords (apply #'max results))
+	 (best (float (1+ (* (/ 1
+				(expt 10 decimals))
+			     (position different-chords results))))))
+    (values best
+	    different-chords
+	    results)))
 
 (defun all-intervals (chord)
   "Returns a list of all intervals present in <chord>."
