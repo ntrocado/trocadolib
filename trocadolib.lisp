@@ -135,8 +135,23 @@ run in that environment."
 		  (10 "A#")
 		  (11 "B")))
 	(octave (1- (floor (/ note 12))))
-	(quarter-tone-up (when (plusp (mod note 1)) "↑")))
+	(quarter-tone-up (when (plusp (mod note 1)) "+")))
     (format nil "~{~a~}" (list letter (if quarter-tone-up quarter-tone-up "") octave))))
+
+(defun notename->midicents (note octave)
+  (+ (* 12 (1+ octave)) (ecase note
+			  (c 0)
+			  (c# 1)
+			  (d 2)
+			  (d# 3)
+			  (e 4)
+			  (f 5)
+			  (f# 6)
+			  (g 7)
+			  (g# 8)
+			  (a 9)
+			  (a# 10)
+			  (b 11))))
 
 (defun midi-seq->string (seq)
   (cond ((sublistp seq) (mapcar (lambda (y) (mapcar (lambda (x) (midi->string x)) y)) seq))
@@ -159,8 +174,8 @@ up by an <interval> until it's the highest."
   (let ((lowest (apply #'min chord))
 	(highest (apply #'max chord)))
     (loop :for a := lowest :then (+ a interval)
-       :maximizing a :until (> a  highest)
-       :finally (return (subst a lowest chord)))))
+	  :maximizing a :until (> a  highest)
+	  :finally (return (subst a lowest chord)))))
 
 (defun all-rotations (chord &optional (interval (midi-cents 12)))
   "Returns a list of all <chord> rotations."
@@ -199,7 +214,7 @@ set to NIL."
 	:collect (if rounded
 		     (mapcar (lambda (x)
 			       (mapcar (lambda (y)
-					 (* (midi-cents 1) (round (/ y (midi-cents 1 ())))))
+					 (* (midi-cents 1) (round (/ y (midi-cents 1)))))
 				       x))
 			     (many-rotations chord interval iterations m))
 		     (many-rotations chord interval iterations m))))
@@ -618,22 +633,25 @@ of binary digits. For example (1 4 1) -> (1 1 0 0 0 1)."
 		     l))))
 
 (defun lyndon-words (n a M)
-  "Generates all Lyndon words of length <= <n> over an alphabet <a>..<M>. The algorithm is an adaptation of the one by Jean-Paul Duval, GÃ©nÃ©ration d'une section des classes de conjugaison et arbre des mots de Lyndon de longueur bornÃ©e, in Theoretical Computer Science, 60, 1988, pp. 255-283."
+;; Generates all Lyndon words of length <= <n> over an alphabet <a>..<M>. The algorithm is an
+;; of by Jean-Paul Duval, Géneration d'une section des classes de
+;; conjugaison et barre des mots de Lyndon de longueur bornée, in Theoretical Computer Science, 60,
+;; 1988, pp. 255-283.
   (let ((w (make-list (1+ n)))
 	(i 1))
     (setf (elt w 1) a)
     (loop
       :do
-	 (loop :for j :from 1 :to (- n i)
-	       :do (setf (elt w (+ i j)) (elt w j)))
+      (loop :for j :from 1 :to (- n i)
+            :do (setf (elt w (+ i j)) (elt w j)))
       :collect (subseq w 1 (1+ i))
       :do
-	 (setf i n)
-	 (loop :while (and (> i 0)
-			   (eq (elt w i) M))
-	       :do (decf i))
-	 (when (> i 0)
-	   (setf (elt w i) (1+ (elt w i))))
+      (setf i n)
+      (loop :while (and (> i 0)
+                        (eq (elt w i) M))
+            :do (decf i))
+      (when (> i 0)
+        (setf (elt w i) (1+ (elt w i))))
       :until (or (= i 0)))))
 
 (defun lyndon-words-with-duration (n a M duration)
