@@ -72,9 +72,9 @@
   "Random number between <mi>nimum and <ma>ximum."
   (+ mi (random (- ma mi))))
   
-(defun exp-rrand (mi ma)
+(defun exp-rrand (mi ma &optional (rate 1.0))
   "Exponential distributed random number between <mi>minum and <ma>ximum."
-  (+ mi (* (exp-rand) (- ma mi))))
+  (+ mi (* (exp-rand rate) (- ma mi))))
 
 (defun random-no-repeats (bottom top size no-repeat-size)
   "Returns a list of random numbers between <bottom> and <top>, with the length <size>.
