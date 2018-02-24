@@ -63,6 +63,19 @@
                  (t (append lst result)))))
       (rotate* lst 0 nil))))
 
+(defun exp-rand (&optional (rate 1.0))
+  "Exponential distributed random number."
+  (- (/ (log (- 1 (* (- 1 (exp (- rate))) (random 1.0))))
+	rate)))
+
+(defun rrand (mi ma)
+  "Random number between <mi>nimum and <ma>ximum."
+  (+ mi (random (- ma mi))))
+  
+(defun exp-rrand (mi ma)
+  "Exponential distributed random number between <mi>minum and <ma>ximum."
+  (+ mi (* (exp-rand) (- ma mi))))
+
 (defun random-no-repeats (bottom top size no-repeat-size)
   "Returns a list of random numbers between <bottom> and <top>, with the length <size>.
 Numbers will be unique in each subsequence of length <no-repeat-size>."
@@ -533,12 +546,17 @@ in the form ((<score1> ((chord 1a) (chord 1b) ... (chord 1n)))
 		    (round (/ (getf b :pos) scale-factor)))
 	       (>= (getf a :pos) (getf b :pos))) 
        (progn
+	 (format t "a:(~a,~a,~a); b:(~a,~a,~a)~%" (getf a :pos) (getf a :vel) (getf a :mass)
+		 (getf b :pos) (getf b :vel) (getf b :mass))
 	 (setf (getf a :pos) -1)
 	 (setf (getf b :vel) (/
 			      (+
 			       (* (getf a :mass) (getf a :vel))
 			       (* (getf b :mass) (getf b :vel)))
-			      (+ (getf a :mass) (getf b :mass))))))
+			      (+ (getf a :mass) (getf b :mass))))
+	 (setf (getf b :mass) (+ (getf a :mass) (getf b :mass)))
+	 (format t "-> a:(~a,~a,~a); b:(~a,~a,~a)~%" (getf a :pos) (getf a :vel) (getf a :mass)
+		 (getf b :pos) (getf b :vel) (getf b :mass))))
      :finally (return (remove-if (lambda (x) (eql (getf x :pos) -1)) body-list))))
      
 (defun get-offsets (body-list)
