@@ -19,19 +19,25 @@
   (remove-duplicates list :test #'equal))
 
 (defun list< (a b)
-  "Returns true when the first element of list <a> is lower than the
-  first element of list <b>"
+  "Returns true when the first number of list <a> is lower than the
+  first element of list <b>. If they are equal compares the next number."
   (cond ((null a) (not (null b)))
         ((null b) nil)
-        ((= (first a) (first b)) (list< (rest a) (rest b)))
+	((and (= (first a) (first b))
+	      (and (numberp (second a))
+		   (numberp (second b))))
+	 (list< (rest a) (rest b)))
         (t (< (first a) (first b)))))
 
 (defun list> (a b)
   "Returns true when the first element of list <a> is higher than the
-  first element of list <b>"
+  first element of list <b>. If they equal compares the next number."
   (cond ((null a) (not (null b)))
         ((null b) nil)
-        ((= (first a) (first b)) (list> (rest a) (rest b)))
+        ((and (= (first a) (first b))
+	      (and (numberp (second a))
+		   (numberp (second b))))
+	 (list> (rest a) (rest b)))
         (t (> (first a) (first b)))))
 
 (defun scale-value (value orig-min orig-max dest-min dest-max)
