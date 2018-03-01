@@ -422,10 +422,10 @@ multiplier, and (3) a list of the number of different chords for each of the mul
   "Attributes a value to each of the mod 12 intervals present in <chord> according to the 
 optional list <score>, in which the first element is the value of interval class 0, the second 
 element the value of interval class 1, etc. Sums all the values and returns a total score for the <chord>."
-  (let ((sorted-chord (copy-seq (sort chord #'<))))
+  (let ((sorted-chord (sort (copy-seq chord) #'<)))
     (loop :for n :in (count-intervals sorted-chord)
 	  :sum (loop :for s :from 0 :upto 11
-		     :when (eql (mod (/ (car n) (midi-cents 1)) 12) s)
+		     :when (= (mod (/ (car n) (midi-cents 1)) 12) s)
 		       :sum (* (elt score s) (cdr n))))))
 
 (defun simpsons-index (chord)
