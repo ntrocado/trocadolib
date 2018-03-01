@@ -473,7 +473,7 @@ relative values in the form ((<score1> (<chord1>)) (<score2> (<chord2>)) ... (<s
 		      :collect (mapcar (lambda (x) (* x w))
 				       (scaled-score (mapcar f list-of-chords)))
 		      :into r
-		      :do (print r)
+		      ;:do (print r)
 		      :finally (return (loop :for i :from 0 :below (length (first r))
 					  :collect (reduce #'+ (mapcar (lambda (x) (nth i x))
 								       r)))))))
