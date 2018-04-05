@@ -40,6 +40,10 @@
 	 (list> (rest a) (rest b)))
         (t (> (first a) (first b)))))
 
+(defun round-to (n d)
+  "(round-to 2.23 0.1) -> 2.2; (round-to 2.23 0.5) -> 2.0."
+  (* (round n d) d))
+
 (defun scale-value (value orig-min orig-max dest-min dest-max)
   "Scales <value> from an original to a destination range. If <value>, <orig-min> and <orig-max> are all the same, returns the lowest value of the destination bracket."
   (when (and (>= value orig-min)
