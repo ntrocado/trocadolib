@@ -228,9 +228,19 @@ E.g. (grand-staff-split (grand-staff-split '((48 64 67) (47 55 62) (48 52 55)))
 		  :finally (push tr treble) (push ba bass))
 	:finally (return (list (reverse bass) (reverse treble)))))
 
-(defun ly-harmony (chord-seq output-file) 
+(defun run-lilypond (file)
+  (sb-ext:run-program "c:/Program Files (x86)/LilyPond/usr/bin/lilypond.exe"
+		      (list file)
+		      :output nil
+		      :directory "c:/Users/trocado/Desktop"))
+
+(defun open-pdf (file)
+  (sb-ext:run-program "c:/Windows/explorer.exe"
+		      (list (format nil "file:///~a" file))))
+
+(defun ly-harmony (chord-seq &optional (output-file "c:/Users/trocado/Desktop/chord-seq.ly")) 
   (with-open-file (out output-file :direction :output
-				   :if-exists :append
+				   :if-exists :supersede
 				   :if-does-not-exist :create)
     (format out "\\new GrandStaff <<~%")
     (loop :for staff :in (reverse (copy-seq (grand-staff-split chord-seq)))
@@ -247,7 +257,12 @@ E.g. (grand-staff-split (grand-staff-split '((48 64 67) (47 55 62) (48 52 55)))
 				   (format out ">1 ~%"))
 			    (format out "r1 ~%"))
 		    :finally (format out "}~%")))
-    (format out ">>~%")))
+    (format out ">>~%"))
+  (run-lilypond output-file)
+  (open-pdf (make-pathname :device (pathname-device output-file)
+			   :directory (pathname-directory output-file)
+			   :name (pathname-name output-file)
+			   :type "pdf")))
 
 ;;; ---------------
 ;;; TRANSFORMATIONS
