@@ -40,6 +40,15 @@
 	 (list> (rest a) (rest b)))
         (t (> (first a) (first b)))))
 
+(defun maptree (fun tree)
+  "Map function <fun> over <tree>, returning a new tree with the same
+structure."
+  (when tree
+    (if (atom tree)
+	(funcall fun tree)
+	(cons (maptree fun (car tree))
+	      (mapcar (lambda (x) (maptree fun x)) (cdr tree))))))
+
 (defun round-to (n d)
   "(round-to 2.23 0.1) -> 2.2; (round-to 2.23 0.5) -> 2.0."
   (* (round n d) d))
@@ -238,7 +247,7 @@ E.g. (grand-staff-split (grand-staff-split '((48 64 67) (47 55 62) (48 52 55)))
   (sb-ext:run-program "c:/Windows/explorer.exe"
 		      (list (format nil "file:///~a" file))))
 
-(defun ly-harmony (chord-seq &optional (output-file "c:/Users/trocado/Desktop/chord-seq.ly")) 
+(defun ly-harmony (chord-seq &optional (output-file "c:/Users/trocado/Desktop/chord-seq.ly"))
   (with-open-file (out output-file :direction :output
 				   :if-exists :supersede
 				   :if-does-not-exist :create)
@@ -290,6 +299,10 @@ up by an <interval> until it's the highest."
 		      :then (subst (upa note (apply #'max achord))
 				   note achord) 
 		    :collect achord)))))
+
+(defun rotations-esmae (chord)
+  (loop :for i :from 1 :upto 11
+	:collect (all-rotations chord i)))
 
 (defun many-rotations (chord interval iterations multiplier)
   "Rotates the <chord> using <interval> (see above);
