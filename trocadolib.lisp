@@ -1,3 +1,5 @@
+(in-package #:trocadolib)
+
 ;;; -----------------
 ;;; GENERAL UTILITIES
 ;;; -----------------
