@@ -55,16 +55,23 @@ structure."
   "(round-to 2.23 0.1) -> 2.2; (round-to 2.23 0.5) -> 2.0."
   (* (round n d) d))
 
-(defun scale-value (value orig-min orig-max dest-min dest-max)
-  "Scales <value> from an original to a destination range. If <value>, <orig-min> and <orig-max> are all the same, returns the lowest value of the destination bracket."
-  (when (and (>= value orig-min)
-	     (<= value orig-max))
-    (if (= value orig-min orig-max)
-	dest-min
-	(+ (/ (* (- value orig-min)
-		 (- dest-max dest-min))
-	      (- orig-max orig-min))
-	   dest-min))))
+(defun scale-value (value orig-min orig-max dest-min dest-max &key (curve 1))
+  "Scales VALUE from an original to a destination range. If VALUE, ORIG-MIN and ORIG-MAX are all the same, returns the lowest value of the destination bracket. Set CURVE to 1 for linear scaling, higher for exponential scaling."
+  (assert (and (>= value orig-min)
+	       (<= value orig-max))
+	  (value orig-min orig-max)
+	  "~S must be between ~S and ~S." value orig-min orig-max)
+  (cond ((= value orig-min orig-max) dest-min)
+	((= curve 1) (+ (/ (* (- value orig-min)
+			      (- dest-max dest-min))
+			   (- orig-max orig-min))
+			dest-min))
+	(t (let* ((b curve)
+		  (s (/ (- dest-max dest-min) (- b 1)))
+		  (r (/ (- (- dest-max dest-min)) (- b 1))))
+	     (+ (* s (expt b (/ value (- orig-max orig-min))))
+		r
+		dest-min)))))
 
 (defun binary-list (n &optional acc)
   "Accepts a non-negative integer, returns its binary representation in list form."
@@ -110,6 +117,13 @@ Numbers will be unique in each subsequence of length <no-repeat-size>."
 					    (butlast (cons nn last-x))))
 		   :until (unique-p new-last-x)
 		   :finally (return nn)))))
+
+(defun fraction-gcd (&rest fractions)
+  "Returns the greatest common denominator of <fractions>."
+  (let ((numerators (mapcar #'numerator fractions))
+	(denominators (mapcar #'denominator fractions)))
+    (/ (apply #'gcd numerators)
+       (apply #'lcm denominators))))
 
 ;;; -----------------
 ;;; PWGL or OpenMusic
@@ -197,6 +211,60 @@ run in that environment."
   (let ((fundamental-freq (midi-to-freq fundamental)))
     (loop :for p :from 1 :upto n-partials
 	  :collect (freq-to-midi (* fundamental-freq p)))))
+
+;;; --------------
+;;; PITCH SPELLING
+;;; --------------
+
+(defun accidental-needed (midi)
+  (when (find (mod (floor midi) 12) '(1 3 6 8 10))
+    t))
+
+(defun natural (note)
+  (cons midi nil))
+
+(defun sharp (note)
+  (when (accidental-needed (first note))
+    (list (1- (first note)) '+)))
+
+(defun flat (note)
+  (when (accidental-needed (first note))
+    (list (1+ (first note)) '-)))
+
+(defun enharmonic-equivalent (note)
+  (case (second note)
+    (0 note)
+    (+ (list (first note)
+	     '-))
+    (- (list (first note)
+	     '+))))
+
+(defun augmented-intervals (pair)
+  (and (= 1 (abs (- (first (first pair)) (first (second pair)))))
+       (equal '+ (second (second pair)))))
+
+(defun spell-ok (chord &optional (pointer 0))
+  (when chord
+    (if (= pointer (- (length chord) 2))
+	chord
+	(let ((pair (subseq chord pointer (+ 2 pointer))))
+	  (if (augmented-intervals pair)
+	      (loop :for guess
+		      :in (list (list (enharmonic-equivalent (first pair))
+				      (enharmonic-equivalent (second pair))))
+		    :do (pprint guess)
+		    :when (spell-ok guess pointer)
+		      :return (append guess (subseq chord 2))
+		    :finally (return nil))
+	      (spell-ok chord (1+ pointer)))))))
+
+
+;; se todas as notas -> sucesso
+;; senão correcto o primeiro par?
+;; ...... chama função no resto
+;; ....... senão # no primeiro
+;; ...... ok?
+;; ...... não ok -> b 
 
 ;;; ---------------
 ;;; LILYPOND OUTPUT
