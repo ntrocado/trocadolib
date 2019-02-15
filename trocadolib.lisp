@@ -92,7 +92,7 @@ structure."
       (rotate* lst 0 nil))))
 
 (defun exp-rand (&optional (rate 1.0))
-  "Exponential distributed random number."
+  "Exponential distributed random number on [0,1)."
   (- (/ (log (- 1 (* (- 1 (exp (- rate))) (random 1.0))))
 	rate)))
 
@@ -189,17 +189,29 @@ run in that environment."
 (defun notename->midicents (note octave)
   (+ (* 12 (1+ octave)) (ecase note
 			  (c 0)
+			  (c+ 0.5)
 			  (c# 1)
+			  (c#+ 1.5)
 			  (d 2)
+			  (d+ 2.5)
 			  (d# 3)
+			  (d#+ 3.5)
 			  (e 4)
+			  (e+ 4.5)
 			  (f 5)
+			  (f+ 5.5)
 			  (f# 6)
+			  (f#+ 6.5)
 			  (g 7)
+			  (g+ 7.5)
 			  (g# 8)
+			  (g#+ 8.5)
 			  (a 9)
+			  (a+ 9.5)
 			  (a# 10)
-			  (b 11))))
+			  (a#+ 10.5)
+			  (b 11)
+			  (b+ 11.5))))
 
 (defun midi-seq->string (seq)
   (cond ((sublistp seq) (mapcar (lambda (y) (mapcar (lambda (x) (midi->string x)) y)) seq))
@@ -823,7 +835,7 @@ of binary digits. For example (1 4 1) -> (1 1 0 0 0 1)."
 		     l))))
 
 (defun lyndon-words (n a M)
-;; Generates all Lyndon words of length <= <n> over an alphabet A..M. The algorithm is an ;; of by Jean-Paul Duval, GÃ©neration d'une section des classes de
+;; Generates all Lyndon words of length <= N over an alphabet A..M. The algorithm is an ;; of by Jean-Paul Duval, GÃ©neration d'une section des classes de
 ;; conjugaison et barre des mots de Lyndon de longueur bornÃ©e, in Theoretical Computer Science, 60,
 ;; 1988, pp. 255-283.
   (let ((w (make-list (1+ n)))
@@ -938,3 +950,69 @@ intervals, and the weight of a maximally even cycle with the same cardinality."
 				    (or (not mod12) (mod12-unique-p (i->p ioi 0)))))
 		 (lyndon-words-with-duration max-attacks min-ioi max-ioi max-length)))
 
+;;; SPECTRAL ANALYSIS
+
+;; Só funciona com f(n)=n+x
+;; (defun find-spectrum (freqs missing-partial-tolerance)
+;;   (multiple-value-bind (min-diff gcd)
+;;       (loop :for (a b) :on freqs
+;; 	    :while b
+;; 	    :collect (- b a) :into d
+;; 	    :minimize (- b a) :into min
+;; 	    :finally (return (values min (apply #'gcd d))))
+;;     (when (< (/ min-diff gcd) missing-partial-tolerance)
+;;       (loop :for a := (first freqs) :then (- a gcd)
+;; 	    :until (<= a gcd)
+;; 	    :finally (return (values a (/ gcd a)))))))
+
+;; (defun inharmonicity-expt (freqs)
+;;   (let* ((exps (mapcar (lambda (x y)
+;; 			 (log x y))
+;; 		       (rest (mapcar (alexandria:rcurry #'/ (first freqs)) freqs))
+;; 		       (rest (alexandria:iota (1- (length freqs)) :start 1))))
+;; 	 (mean (alexandria:mean exps))
+;; 	 (max-diff (apply #'max (mapcar (alexandria:curry #'- mean) exps))))
+;;     (values mean max-diff)))
+
+;; (defun inharmonicity-unknown-root (freqs &optional (precision 0.1))
+;;   (loop :for i :from 1 :upto (first freqs) :by precision
+;; 	:when (< (nth-value 1 (inharmonicity-expt (append (list i) freqs)))
+;; 		 0.0001)
+;; 	  :append (cons (append (list (round-to i precision)) freqs)
+;; 			(inharmonicity-expt (append (list i) freqs)))))
+
+(defun make-matrix (freqs)
+  (let ((root (first freqs))
+	(matrix (make-array (list (1- (length freqs)) 50))))
+    (loop :for freq :in (rest freqs)
+	  :for f :from 0 
+	  :do (loop :for n :from 0 :upto 49
+		    :do (setf (aref matrix f n)
+			      (log (/ freq root) (+ n 2))))
+	  :finally (return matrix))))
+
+(defun find-common (matrix)
+  (loop :for i :from 0 :below (array-dimension matrix 1)
+	:for f := (aref matrix 0 i)
+	:when (loop :for j :from 1 :below (array-dimension matrix 0)
+		    :always (loop :for k :below (array-dimension matrix 1)
+				  :for g := (aref matrix j k)
+				    :thereis (< (abs (- f g)) 0.01)))
+	  :return f))
+
+(defun inharmonicity (freqs &key
+			      (precision 0.1)
+			      (maximum-compression 0.8)
+			      (maximum-expansion 1.2))
+  (loop :for i :from (first freqs) :downto 1 :by precision
+	:for guess := (if (= i (first freqs))
+			  freqs
+			  (append (list i) freqs))
+	:for guess-exp := (or (find-common (make-matrix guess)) 0)
+	:when (> maximum-expansion guess-exp maximum-compression)
+	  ;;TODO: em vez de devolver o primeiro resultado, procurar o resultado óptimo
+	  :return (values guess guess-exp)))
+
+(defun spectrum (fundamental partials exp)
+  (loop :for i :from 1 :upto partials
+	:collect (* fundamental (expt i exp))))
