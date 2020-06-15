@@ -184,7 +184,7 @@ run in that environment."
 		  (11 "B")))
 	(octave (1- (floor (/ note 12))))
 	(quarter-tone-up (when (plusp (mod note 1)) "+")))
-    (format nil "~{~a~}" (list letter (if quarter-tone-up quarter-tone-up "") octave))))
+    (format nil "~{~@[~a~]~}" (list letter quarter-tone-up octave))))
 
 (defun notename->midicents (note octave)
   (+ (* 12 (1+ octave)) (ecase note
