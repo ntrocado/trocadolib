@@ -517,6 +517,29 @@ E.g. (grand-staff-split (grand-staff-split '((48 64 67) (47 55 62) (48 52 55)))
 			   :name (pathname-name output-file)
 			   :type "pdf")))
 
+(defparameter *template-phrases-noteheads*
+  "\\score { 
+  \\new Staff { 
+    \\omit Score.TimeSignature 
+    \\omit Score.BarNumber 
+    \\omit Score.BarLine
+    \\time 1/4 
+    \\omit Stem
+    \\set Score.markFormatter = #format-mark-numbers
+    ~{\\mark \\default ~{~a ~}~^\\break ~} }~% 
+    \\layout {
+      indent = #0
+      ragged-right = ##t
+    }
+}")
+
+(defun ly-melody (notes &optional (output-file "c:/Users/trocado/Desktop/melody.ly"))
+  (with-open-file (out output-file :direction :output
+				   :if-exists :supersede
+				   :if-does-not-exist :create)
+    (format out "\\new Staff { \\omit Score.TimeSignature \\omit Score.BarLine \\time 1/4 \\omit Stem ~{~a~^ ~}}"
+	    (mapcar #'midi->ly-note notes))))
+
 ;;; ---------------
 ;;; TRANSFORMATIONS
 ;;; ---------------
@@ -1176,3 +1199,17 @@ intervals, and the weight of a maximally even cycle with the same cardinality."
 (defun spectrum (fundamental partials exp)
   (loop :for i :from 1 :upto partials
 	:collect (* fundamental (expt i exp))))
+
+;;; ---------------
+;;; MELODIC VECTORS
+;;; ---------------
+
+(defun apply-melodic-vector (notes vector &optional (fun #'identity))
+  (loop :for note :in notes
+	:for v := vector :then (funcall fun vector)
+	:append (mapcar (lambda (x) (+ x note))
+			v)))
+
+(defun extract-melodic-vector (notes)
+  (p->i notes))
+
