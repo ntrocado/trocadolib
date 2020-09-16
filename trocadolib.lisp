@@ -228,57 +228,226 @@ run in that environment."
 ;;; PITCH SPELLING
 ;;; --------------
 
-;;; To be developed someday
+(defun pitch-letter-p (letter)
+  (find letter "abcdefg" :test 'char=))
 
-(defun accidental-needed (midi)
-  (when (find (mod (floor midi) 12) '(1 3 6 8 10))
-    t))
+(deftype pitch-letter ()
+  `(and (standard-char)
+	(satisfies pitch-letters-p)))
 
-(defun natural (note)
-  (cons midi nil))
+(defclass note ()
+  ((letter
+    :accessor letter
+    :initarg :letter
+    :initform #\c
+    :type pitch-letter
+    :documentation "One of c, d, e, f, g, a or b")
+   (accidental
+    :accessor accidental
+    :initarg :accidental
+    :initform :natural
+    :type keyword)
+   (octave
+    :accessor octave
+    :initarg :octave
+    :initform 4
+    :type integer
+    :documentation "The octave. Middle C is on the fourth octave.")))
 
-(defun sharp (note)
-  (when (accidental-needed (first note))
-    (list (1- (first note)) '+)))
+(defmethod print-object ((object note) stream)
+  (print-unreadable-object (object stream :type t)
+    (with-accessors ((letter letter) (accidental accidental) (octave octave))
+	object
+      (format stream
+	      "~@(~a~)~a~a"
+	      letter
+	      (ecase accidental
+		(:natural "")
+		(:flat "b")
+		(:sharp "#")
+		(:double-sharp "x")
+		(:double-flat "bb"))
+	      octave))))
 
-(defun flat (note)
-  (when (accidental-needed (first note))
-    (list (1+ (first note)) '-)))
+(defun letter-value (letter)
+  (case letter
+    (#\a 5)
+    (#\b 6)
+    (#\c 0)
+    (#\d 1)
+    (#\e 2)
+    (#\f 3)
+    (#\g 4)))
 
-(defun enharmonic-equivalent (note)
-  (case (second note)
-    (0 note)
-    (+ (list (first note)
-	     '-))
-    (- (list (first note)
-	     '+))))
+(defun note->midi-note-number (note)
+  (with-accessors ((letter letter) (accidental accidental) (octave octave))
+      note
+    (+ (ecase letter
+	 (#\a 9)
+	 (#\b 11)
+	 (#\c 0)
+	 (#\d 2)
+	 (#\e 4)
+	 (#\f 5)
+	 (#\g 7))
+       (ecase accidental
+	 (:natural 0)
+	 (:sharp 1)
+	 (:double-sharp 2)
+	 (:flat -1)
+	 (:double-flat -2))
+       (* 12 (1+ octave)))))
 
-(defun augmented-intervals (pair)
-  (and (= 1 (abs (- (first (first pair)) (first (second pair)))))
-       (equal '+ (second (second pair)))))
+(defun interval-number (note1 note2)
+  (destructuring-bind (high low)
+      (sort (list note1 note2) (lambda (a b)
+				 (> (note->midi-note-number a)
+				    (note->midi-note-number b))))
+    (1+ (mod (- (letter-value (letter high))
+		(letter-value (letter low)))
+	     7))))
 
-(defun spell-ok (chord &optional (pointer 0))
-  (when chord
-    (if (= pointer (- (length chord) 2))
-	chord
-	(let ((pair (subseq chord pointer (+ 2 pointer))))
-	  (if (augmented-intervals pair)
-	      (loop :for guess
-		      :in (list (list (enharmonic-equivalent (first pair))
-				      (enharmonic-equivalent (second pair))))
-		    :do (pprint guess)
-		    :when (spell-ok guess pointer)
-		      :return (append guess (subseq chord 2))
-		    :finally (return nil))
-	      (spell-ok chord (1+ pointer)))))))
+(defun interval-in-semitones (note1 note2)
+  (abs (- (note->midi-note-number note1)
+	  (note->midi-note-number note2))))
 
+(defun major-or-perfect-interval-size (interval-number)
+  (nth (1- interval-number) '(0 2 4 5 7 9 11)))
 
-;; se todas as notas -> sucesso
-;; senão correcto o primeiro par?
-;; ...... chama função no resto
-;; ....... senão # no primeiro
-;; ...... ok?
-;; ...... não ok -> b 
+(defun distance-from-major-or-perfect (note1 note2)
+  (- (interval-in-semitones note1 note2)
+     (major-or-perfect-interval-size (interval-number note1 note2))))
+
+(defun interval-quality (note1 note2)
+  (or (let ((distance (distance-from-major-or-perfect note1 note2)))
+	(cond
+	  ((member (interval-number note1 note2) '(1 4 5))
+	   (case distance
+	     (-1 :diminished)
+	     (0  :perfect)
+	     (+1 :augmented)))
+	  ((member (interval-number note1 note2) '(2 3 6 7))
+	   (case distance
+	     (-2 :diminished)
+	     (-1 :minor)
+	     (0  :major)
+	     (+1 :augmented)))))
+      :other))
+
+(defun diminished-interval-p (note1 note2)
+  (equal (interval-quality note1 note2)
+	 :diminished))
+
+(defun augmented-interval-p (note1 note2)
+  (equal (interval-quality note1 note2)
+	 :augmented))
+
+;; 60 b# c dbb
+;; 61 bx c# db
+;; 62 cx d ebb
+;; 63 d# eb fbb
+;; 64 dx e fb
+;; 65 e# f gbb
+;; 66 ex f# gb
+;; 67 fx g abb
+;; 68 g# ab (bbbb)
+;; 69 gx a bb
+;; 70 a# bb cbb
+;; 71 ax b cb
+
+(defun possible-spellings (midi-note-number)
+  (let ((octave (1- (floor (/ midi-note-number 12)))))
+    (flet ((make-note (letter accidental)
+	     (make-instance 'note :letter letter :octave octave :accidental accidental)))
+      (case (mod midi-note-number 12)
+	(0 (list (make-note #\c :natural)
+		 (make-note #\b :sharp)
+		 (make-note #\d :double-flat)))
+	(1 (list (make-note #\c :sharp)
+		 (make-note #\d :flat)
+		 (make-note #\b :double-sharp)))
+	(2 (list (make-note #\d :natural)
+		 (make-note #\c :double-sharp)
+		 (make-note #\e :double-flat)))
+	(3 (list (make-note #\e :flat)
+		 (make-note #\d :sharp)
+		 (make-note #\f :double-flat)))
+	(4 (list (make-note #\e :natural)
+		 (make-note #\f :flat)
+		 (make-note #\d :double-sharp)))
+	(5 (list (make-note #\f :natural)
+		 (make-note #\e :sharp)
+		 (make-note #\g :double-flat)))
+	(6 (list (make-note #\f :sharp)
+		 (make-note #\g :flat)
+		 (make-note #\e :double-sharp)))
+	(7 (list (make-note #\g :natural)
+		 (make-note #\f :double-sharp)
+		 (make-note #\a :double-flat)))
+	(8 (list (make-note #\a :flat)
+		 (make-note #\g :sharp)))
+	(9 (list (make-note #\a :natural)
+		 (make-note #\g :double-sharp)
+		 (make-note #\b :double-flat)))
+	(10 (list (make-note #\b :flat)
+		  (make-note #\a :sharp)
+		  (make-note #\c :double-flat)))
+	(11 (list (make-note #\b :natural)
+		  (make-note #\c :flat)
+		  (make-note #\a :double-sharp)))))))
+
+(defun count-accidentals (notes)
+  (count-if-not (lambda (x) (eql (accidental x) :natural)) notes))
+
+(defun count-double-accidentals (notes)
+  (count-if (lambda (x) (or (eql (accidental x) :double-flat)
+			    (eql (accidental x) :double-sharp)))
+	    notes))
+
+(defun count-diminished-intervals (notes)
+  (loop :for (a b) :on notes
+	:while b
+	:when (diminished-interval-p a b)
+	  :count :it))
+
+(defun count-augmented-intervals (notes)
+  (loop :for (a b) :on notes
+	:while b
+	:when (augmented-interval-p a b)
+	  :count :it))
+
+(defun parsimony (notes)
+  (let ((ht (make-hash-table)))
+    (loop :for letter :across "abcdefg"
+	  :do (setf (gethash letter ht) :natural))
+    (loop :for note :in notes
+	  :for letter := (letter note)
+	  :for accidental := (accidental note)
+	  :unless (eql accidental (gethash letter ht))
+	    :count (setf (gethash letter ht) accidental))))
+
+;; TODO avoid mixing accidentals
+(defun score-spelling (notes)
+  (+ (count-accidentals notes)
+     (count-double-accidentals notes)
+     (* 1.2 (parsimony notes))
+     (* 1.4 (count-augmented-intervals notes))
+     (* 1.5 (count-diminished-intervals notes))
+     (* 10 (loop :for (a b) :on notes
+		 :while b
+		 :count (eql (interval-quality a b) :other)))))
+
+(defun best-spelling (midi-note-numbers)
+  (loop :with best-score-so-far := (* 3 (length midi-note-numbers))
+	:with result
+	:for try :in (apply #'alexandria:map-product
+			    #'list
+			    (mapcar #'possible-spellings midi-note-numbers))
+	:for score := (score-spelling try)
+	:when (< score best-score-so-far)
+	  :do (setf best-score-so-far score)
+	  :and :do (setf result try)
+	:finally (return result)))
 
 ;;; ---------------
 ;;; LILYPOND OUTPUT
