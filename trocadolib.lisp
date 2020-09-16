@@ -237,7 +237,8 @@ run in that environment."
     :accessor accidental
     :initarg :accidental
     :initform :natural
-    :type keyword)
+    :type keyword
+    :documentation "Accidentals are :natural, :double-flat, :flat, :sharp, :double-sharp")
    (octave
     :accessor octave
     :initarg :octave
@@ -289,40 +290,44 @@ run in that environment."
 	 (:double-flat -2))
        (* 12 (1+ octave)))))
 
+;; (defun interval-number (note1 note2)
+;;   ;; Compound (> octave) intervals are wrapped
+;;   (destructuring-bind (high low)
+;;       (sort (list note1 note2) (lambda (a b)
+;; 				 (> (note->midi-note-number a)
+;; 				    (note->midi-note-number b))))
+;;     (1+ (mod (- (letter-value (letter high))
+;; 		(letter-value (letter low)))
+;; 	     7))))
+
 (defun interval-number (note1 note2)
-  (destructuring-bind (high low)
-      (sort (list note1 note2) (lambda (a b)
-				 (> (note->midi-note-number a)
-				    (note->midi-note-number b))))
-    (1+ (mod (- (letter-value (letter high))
-		(letter-value (letter low)))
-	     7))))
+  (1+ (abs (- (+ (* (octave note2) 7) (letter-value (letter note2)))
+	      (+ (* (octave note1) 7) (letter-value (letter note1)))))))
 
 (defun interval-in-semitones (note1 note2)
   (abs (- (note->midi-note-number note1)
 	  (note->midi-note-number note2))))
 
 (defun major-or-perfect-interval-size (interval-number)
-  (nth (1- interval-number) '(0 2 4 5 7 9 11)))
+  (nth (mod (1- interval-number) 7) '(0 2 4 5 7 9 11)))
 
 (defun distance-from-major-or-perfect (note1 note2)
-  (- (interval-in-semitones note1 note2)
+  (- (mod (interval-in-semitones note1 note2) 12)
      (major-or-perfect-interval-size (interval-number note1 note2))))
 
 (defun interval-quality (note1 note2)
   (or (let ((distance (distance-from-major-or-perfect note1 note2)))
-	(cond
-	  ((member (interval-number note1 note2) '(1 4 5))
-	   (case distance
+	(if (member (mod (interval-number note1 note2) 7) '(1 4 5))
+	    (case distance
 	     (-1 :diminished)
 	     (0  :perfect)
-	     (+1 :augmented)))
-	  ((member (interval-number note1 note2) '(2 3 6 7))
-	   (case distance
+	     (+1 :augmented))
+	    ;; 2 3 6 7
+	    (case distance
 	     (-2 :diminished)
 	     (-1 :minor)
 	     (0  :major)
-	     (+1 :augmented)))))
+	     (+1 :augmented))))
       :other))
 
 (defun diminished-interval-p (note1 note2)
@@ -343,7 +348,7 @@ run in that environment."
 ;; 67 fx g abb
 ;; 68 g# ab (bbbb)
 ;; 69 gx a bb
-;; 70 a# bb cbb
+;; 70 a# bb (cbb)
 ;; 71 ax b cb
 
 (defun possible-spellings (midi-note-number)
@@ -381,8 +386,7 @@ run in that environment."
 		 (make-note #\g :double-sharp)
 		 (make-note #\b :double-flat)))
 	(10 (list (make-note #\b :flat)
-		  (make-note #\a :sharp)
-		  (make-note #\c :double-flat)))
+		  (make-note #\a :sharp)))
 	(11 (list (make-note #\b :natural)
 		  (make-note #\c :flat)
 		  (make-note #\a :double-sharp)))))))
