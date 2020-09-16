@@ -65,7 +65,7 @@ structure."
 		dest-min)))))
 
 (defun binary-list (n &optional acc)
-  "Accepts a non-negative integer, returns its binary representation in list form."
+  "Accepts a non-negative integer N, returns its binary representation in list form."
   ;; http://stackoverflow.com/questions/22668217/decimal-to-binary-in-lisp-make-a-non-nested-list 
   (cond ((zerop n) (or acc (list 0)))
         ((plusp n)
